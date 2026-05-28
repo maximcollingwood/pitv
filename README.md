@@ -72,15 +72,19 @@ vagrant provision   # re-run after changes; second run should report no changes 
 vagrant ssh         # poke around
 ```
 
-To see the actual web app inside the VM's window:
+Confirm the app layer is serving correctly in the VM:
 
 ```sh
-vagrant ssh -c "sudo -u kiosk /usr/local/bin/kiosk-launch.sh"
+vagrant ssh -c "systemctl is-active nginx; grep -c 'Kiosk is running' /var/www/html/index.html"
+# -> active
+# -> 1
 ```
 
-> The VM validates the playbook and the **web app** itself. The on-screen kiosk
-> wrapper (seat/DRM bring-up) is pi-specific and is verified on real hardware —
-> VirtualBox has no real GPU seat, so the compositor isn't auto-started there.
+> The VM validates the playbook and the **web app** itself. It does **not** run
+> the on-screen compositor: `cage`/libseat needs a real DRM graphics seat, which
+> VirtualBox doesn't provide — trying to launch it there fails with
+> `Failed to start a DRM session`. The compositor layer is verified on the
+> actual pi, which has a real GPU and seat.
 
 ## Placeholder app
 
