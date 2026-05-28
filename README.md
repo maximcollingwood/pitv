@@ -82,6 +82,16 @@ vagrant ssh -c "sudo -u kiosk /usr/local/bin/kiosk-launch.sh"
 > wrapper (seat/DRM bring-up) is pi-specific and is verified on real hardware —
 > VirtualBox has no real GPU seat, so the compositor isn't auto-started there.
 
+## Placeholder app
+
+Out of the box the `app` role serves a static "hello world" page from nginx on
+the device, and `kiosk_url` points at `http://localhost` — so you can confirm
+the full pipeline (boot → compositor → Chromium → page) before a real app
+exists. The page shows a live clock so you can tell it's actually rendering.
+
+Once you have a real app, set `kiosk_serve_local_app: false` and point
+`kiosk_url` at it.
+
 ## Customizing
 
 - **Change the displayed site:** `kiosk_url` in `ansible/group_vars/all.yml`.

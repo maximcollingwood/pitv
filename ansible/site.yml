@@ -4,6 +4,8 @@
   become: true
   roles:
     - base
+    - role: app
+      when: kiosk_serve_local_app
     - kiosk-user
     - display
     - kiosk-service

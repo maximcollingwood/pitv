@@ -4,8 +4,14 @@
 # ──────────────────────────────────────────────────────────────────────────
 
 # The web app the kiosk displays. Remote URL, LAN address, or http://localhost
-# if you later self-host the app on the pi (see roles + plan "Optional").
-kiosk_url: "https://example.org"
+# if you self-host the app on the pi.
+# Default points at the bundled placeholder page (see kiosk_serve_local_app).
+kiosk_url: "http://localhost"
+
+# When true, the `app` role serves a static placeholder "hello world" page from
+# nginx on this device — handy for confirming the pipeline before a real app
+# exists. Set false (and point kiosk_url elsewhere) once you have a real app.
+kiosk_serve_local_app: true
 
 # Where this config lives, used by the `update-kiosk` helper (ansible-pull).
 # Set this to your GitHub repo before flashing the pi.
