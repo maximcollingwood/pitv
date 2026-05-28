@@ -14,9 +14,9 @@ concurrently.
 
 | Concern              | Mechanism                                                        |
 |----------------------|-----------------------------------------------------------------|
-| Boot to app          | Raspberry Pi OS Lite → `cage` (Wayland kiosk) → `chromium --kiosk` |
-| Crash recovery       | `systemd` unit `kiosk.service` with `Restart=always`            |
-| Terminal escape hatch| Ctrl+Alt+F2 → login shell · Ctrl+Alt+F1 → back to kiosk          |
+| Boot to app          | Raspberry Pi OS Lite → `labwc` (Wayland) → `chromium --kiosk`    |
+| Crash recovery       | `systemd` `Restart=always` (labwc) + app relaunch loop          |
+| Terminal escape hatch| labwc keybinding Ctrl+Alt+F2 → `chvt` to console · Ctrl+Alt+F1 → back |
 | Config in git        | Ansible playbook applied via `ansible-pull`                      |
 | Dev parity           | Vagrant VM provisioned by the **same** playbook (`ansible_local`)|
 
@@ -41,8 +41,8 @@ ansible/
     backend/                Fastify API build + systemd service
     app/                    frontend build + nginx (serves SPA, proxies /api)
     kiosk-user/             dedicated locked-down kiosk user
-    display/                cage + chromium
-    kiosk-service/          systemd unit, launch script, update-kiosk helper
+    display/                labwc + xwayland + chromium
+    kiosk-service/          systemd unit, labwc config, launch scripts, update-kiosk
 ```
 
 ## First time: set up the pi
@@ -135,8 +135,10 @@ To point the kiosk at a remote app instead of this local stack, set
 ## Verifying on the pi
 
 ```sh
-systemctl status kiosk.service        # active (running)
+systemctl status kiosk.service        # active (running) — this is labwc
 sudo pkill -f chromium                # kill the app...
-systemctl status kiosk.service        # ...and watch systemd restart it within ~2s
+# ...the relaunch loop brings Chromium back within ~2s (labwc stays up)
+sudo pkill -f labwc                   # kill the compositor...
+systemctl status kiosk.service        # ...and systemd restarts it within ~2s
 ```
-Ctrl+Alt+F2 should drop you to a login shell; Ctrl+Alt+F1 returns to the kiosk.
+Ctrl+Alt+F2 should drop you to a login console; Ctrl+Alt+F1 returns to the kiosk.

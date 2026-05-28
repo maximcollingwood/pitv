@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!-- Managed by Ansible — edit the template, not this file. -->
+<labwc_config>
+  <core>
+    <gap>0</gap>
+  </core>
+
+  <keyboard>
+    <!-- Console escape hatch. Handled by the compositor, so it works even if
+         the kiosk app fails to load. `chvt` switches to the admin console
+         (Ctrl+Alt+F1 returns to the kiosk, handled natively by the console). -->
+    <keybind key="C-A-F{{ admin_console_tty }}">
+      <action name="Execute">
+        <command>sudo /usr/bin/chvt {{ admin_console_tty }}</command>
+      </action>
+    </keybind>
+  </keyboard>
+
+  <windowRules>
+    <!-- The kiosk app should fill the screen with no title bar/borders. -->
+    <windowRule identifier="*" serverDecoration="no" />
+  </windowRules>
+</labwc_config>

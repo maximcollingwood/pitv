@@ -1,5 +1,40 @@
 ---
-- name: Install kiosk launch script
+- name: Create labwc config directory
+  ansible.builtin.file:
+    path: /etc/kiosk/labwc
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install labwc config (keybindings + window rules)
+  ansible.builtin.template:
+    src: labwc-rc.xml.j2
+    dest: /etc/kiosk/labwc/rc.xml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kiosk
+
+- name: Install labwc autostart (launches the kiosk app)
+  ansible.builtin.template:
+    src: labwc-autostart.j2
+    dest: /etc/kiosk/labwc/autostart
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart kiosk
+
+- name: Install kiosk app launcher (relaunch loop for crash recovery)
+  ansible.builtin.template:
+    src: kiosk-app.sh.j2
+    dest: /usr/local/bin/kiosk-app.sh
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart kiosk
+
+- name: Install kiosk launch script (starts labwc)
   ansible.builtin.template:
     src: kiosk-launch.sh.j2
     dest: /usr/local/bin/kiosk-launch.sh
@@ -7,6 +42,17 @@
     group: root
     mode: "0755"
   notify: Restart kiosk
+
+- name: Allow the kiosk user to switch VTs (console escape hatch)
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/kiosk-chvt
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      # The labwc escape-hatch keybinding runs this to drop to the console.
+      {{ kiosk_user }} ALL=(root) NOPASSWD: /usr/bin/chvt
 
 - name: Install kiosk systemd unit
   ansible.builtin.template:
@@ -48,50 +94,20 @@
     state: link
     force: true
 
-# Escape hatch: keep a real getty permanently running on a dedicated VT so
-# Ctrl+Alt+F{{ admin_console_tty }} always lands on a login prompt. We can't
-# rely on logind's on-demand autovt here — when the active session is the cage
-# (wlroots) compositor, switching VTs often doesn't spawn a getty, so the target
-# tty is blank and the hotkey appears to "do nothing".
+# The console the escape hatch drops to. Keep a getty permanently running here
+# (logind's on-demand autovt is unreliable under a wlroots session).
 - name: Keep an admin console running on tty{{ admin_console_tty }}
   ansible.builtin.systemd:
     name: "getty@tty{{ admin_console_tty }}.service"
     enabled: true
     state: started
 
-# The cage (wlroots) compositor doesn't forward Ctrl+Alt+F<n> to switch VTs,
-# but `chvt` works fine. triggerhappy reads raw evdev key events (independent of
-# the compositor) and runs the switch directly — a robust escape hatch.
-- name: Install triggerhappy (evdev hotkey daemon)
-  ansible.builtin.apt:
-    name: triggerhappy
-    state: present
-
-- name: Allow triggerhappy (runs as 'nobody') to switch VTs
-  ansible.builtin.copy:
-    dest: /etc/sudoers.d/kiosk-chvt
-    owner: root
-    group: root
-    mode: "0440"
-    validate: "visudo -cf %s"
-    content: |
-      # Kiosk console escape hatch: let the triggerhappy daemon switch VTs.
-      nobody ALL=(root) NOPASSWD: /usr/bin/chvt
-
-- name: Install console-switch hotkey bindings
-  ansible.builtin.template:
-    src: triggerhappy-kiosk.conf.j2
-    dest: /etc/triggerhappy/triggers.d/kiosk-console.conf
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Restart triggerhappy
-
-- name: Enable and start triggerhappy
-  ansible.builtin.systemd:
-    name: triggerhappy.service
-    enabled: true
-    state: started
+# Clean up the previous (cage-era) triggerhappy escape-hatch attempt, which
+# can't work because the compositor takes the keyboard exclusively.
+- name: Remove stale triggerhappy hotkey config
+  ansible.builtin.file:
+    path: /etc/triggerhappy/triggers.d/kiosk-console.conf
+    state: absent
 
 - name: Flush handlers before enabling the service
   ansible.builtin.meta: flush_handlers

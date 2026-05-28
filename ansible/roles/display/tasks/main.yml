@@ -14,6 +14,7 @@
 - name: Install kiosk display stack
   ansible.builtin.apt:
     name:
-      - cage              # minimal Wayland kiosk compositor (one app, fullscreen)
+      - labwc             # configurable wlroots compositor (Pi OS native)
+      - xwayland          # let Chromium render via X (as it did under cage)
       - "{{ chromium_package }}"
     state: present

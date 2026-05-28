@@ -1,0 +1,16 @@
+#!/bin/sh
+# Managed by Ansible — edit the template, not this file.
+# Runs inside the labwc session (via autostart). Relaunches the browser if it
+# exits or crashes, so the app self-heals. labwc keeps running independently,
+# which keeps the console escape-hatch keybinding alive even if the app dies.
+set -u
+
+while true; do
+  {{ chromium_binary }} \
+{% for flag in chromium_flags %}
+    {{ flag }} \
+{% endfor %}
+    --user-data-dir="{{ kiosk_data_dir }}" \
+    "{{ kiosk_url }}"
+  sleep 2
+done
