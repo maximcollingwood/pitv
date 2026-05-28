@@ -1,0 +1,10 @@
+# Managed by Ansible — edit the template, not this file.
+# Shipped DISABLED. Enable with: sudo systemctl enable --now kiosk-update.timer
+[Unit]
+Description=Pull latest kiosk config and re-apply
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/update-kiosk

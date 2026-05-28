@@ -1,0 +1,26 @@
+---
+- name: Create kiosk group
+  ansible.builtin.group:
+    name: "{{ kiosk_user }}"
+    gid: "{{ kiosk_uid }}"
+    state: present
+
+- name: Create kiosk user
+  ansible.builtin.user:
+    name: "{{ kiosk_user }}"
+    uid: "{{ kiosk_uid }}"
+    group: "{{ kiosk_user }}"
+    groups: "{{ kiosk_groups }}"
+    append: true
+    shell: /bin/bash          # needed for the PAM login session; password stays locked
+    password: "!"             # locked: no interactive login via getty
+    create_home: true
+    state: present
+
+- name: Ensure disposable Chromium profile dir exists
+  ansible.builtin.file:
+    path: "{{ kiosk_data_dir }}"
+    state: directory
+    owner: "{{ kiosk_user }}"
+    group: "{{ kiosk_user }}"
+    mode: "0700"

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Managed by Ansible — edit the template, not this file.
+set -eu
+
+export XDG_RUNTIME_DIR="/run/user/{{ kiosk_uid }}"
+
+# cage runs a single Wayland client fullscreen, then exits when it exits —
+# systemd's Restart=always brings it straight back.
+exec cage -- {{ chromium_binary }} \
+{% for flag in chromium_flags %}
+  {{ flag }} \
+{% endfor %}
+  --user-data-dir="{{ kiosk_data_dir }}" \
+  "{{ kiosk_url }}"

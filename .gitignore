@@ -1,0 +1,10 @@
+# Vagrant
+.vagrant/
+*.box
+
+# Ansible
+*.retry
+
+# Local secrets — use ansible-vault, never commit plaintext
+*.vault
+secrets.yml

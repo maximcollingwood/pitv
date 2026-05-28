@@ -1,0 +1,9 @@
+# Every target provisions itself locally:
+#   - the pi runs this via ansible-pull
+#   - the dev VM runs this via Vagrant's ansible_local provisioner
+# No SSH control node, so the execution path is identical everywhere.
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: /usr/bin/python3

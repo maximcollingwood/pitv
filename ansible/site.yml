@@ -1,0 +1,9 @@
+---
+- name: Provision Raspberry Pi web kiosk
+  hosts: all
+  become: true
+  roles:
+    - base
+    - kiosk-user
+    - display
+    - kiosk-service

@@ -1,0 +1,46 @@
+---
+# ──────────────────────────────────────────────────────────────────────────
+# The two things you'll change most often:
+# ──────────────────────────────────────────────────────────────────────────
+
+# The web app the kiosk displays. Remote URL, LAN address, or http://localhost
+# if you later self-host the app on the pi (see roles + plan "Optional").
+kiosk_url: "https://example.org"
+
+# Where this config lives, used by the `update-kiosk` helper (ansible-pull).
+# Set this to your GitHub repo before flashing the pi.
+kiosk_repo_url: "https://github.com/maximcollingwood/pitv.git"
+kiosk_repo_branch: "main"
+
+# ──────────────────────────────────────────────────────────────────────────
+# Kiosk identity
+# ──────────────────────────────────────────────────────────────────────────
+kiosk_user: "kiosk"
+kiosk_uid: 1001                       # fixed so XDG_RUNTIME_DIR is deterministic
+kiosk_groups:                         # seat/DRM/input access for the compositor
+  - video
+  - render
+  - input
+  - tty
+kiosk_data_dir: "/home/{{ kiosk_user }}/.kiosk-profile"  # disposable Chromium state
+
+# When false, the playbook installs everything but does NOT start the on-screen
+# compositor. The dev VM sets this false (VirtualBox has no real DRM/GPU seat),
+# so `vagrant provision` validates the whole playbook without needing a GPU.
+# The pi leaves this true.
+kiosk_start_compositor: true
+
+# ──────────────────────────────────────────────────────────────────────────
+# Chromium hardening flags. Edit freely; rendered into the launch script.
+# ──────────────────────────────────────────────────────────────────────────
+chromium_flags:
+  - "--kiosk"
+  - "--noerrdialogs"
+  - "--disable-infobars"
+  - "--incognito"
+  - "--disable-session-crashed-bubble"
+  - "--disable-features=Translate"
+  - "--no-first-run"
+  - "--fast"
+  - "--fast-start"
+  - "--check-for-update-interval=31536000"

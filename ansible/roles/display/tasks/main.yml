@@ -1,0 +1,19 @@
+---
+# Raspberry Pi OS and plain Debian are both "Debian" to ansible_facts, but they
+# name the Chromium package differently. Detect via /etc/rpi-issue.
+- name: Detect Raspberry Pi OS
+  ansible.builtin.stat:
+    path: /etc/rpi-issue
+  register: rpi_issue
+
+- name: Select Chromium package/binary name
+  ansible.builtin.set_fact:
+    chromium_package: "{{ 'chromium-browser' if rpi_issue.stat.exists else 'chromium' }}"
+    chromium_binary: "{{ 'chromium-browser' if rpi_issue.stat.exists else 'chromium' }}"
+
+- name: Install kiosk display stack
+  ansible.builtin.apt:
+    name:
+      - cage              # minimal Wayland kiosk compositor (one app, fullscreen)
+      - "{{ chromium_package }}"
+    state: present

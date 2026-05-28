@@ -1,0 +1,10 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart kiosk
+  ansible.builtin.systemd:
+    name: kiosk.service
+    state: restarted
+  when: kiosk_start_compositor

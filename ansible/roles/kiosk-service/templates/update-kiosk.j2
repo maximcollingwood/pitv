@@ -1,0 +1,12 @@
+#!/bin/sh
+# Managed by Ansible — edit the template, not this file.
+# Pull the latest config from git and re-apply it idempotently.
+# ansible-pull clones the repo, then runs the playbook from the repo root;
+# roles/ and group_vars/ are auto-discovered next to ansible/site.yml.
+set -eu
+
+exec ansible-pull \
+  --url "{{ kiosk_repo_url }}" \
+  --checkout "{{ kiosk_repo_branch }}" \
+  --inventory "localhost," \
+  "ansible/site.yml" "$@"

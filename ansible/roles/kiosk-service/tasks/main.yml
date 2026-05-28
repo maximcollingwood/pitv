@@ -1,0 +1,58 @@
+---
+- name: Install kiosk launch script
+  ansible.builtin.template:
+    src: kiosk-launch.sh.j2
+    dest: /usr/local/bin/kiosk-launch.sh
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart kiosk
+
+- name: Install kiosk systemd unit
+  ansible.builtin.template:
+    src: kiosk.service.j2
+    dest: /etc/systemd/system/kiosk.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart kiosk
+
+- name: Install update-kiosk helper (git pull + re-apply)
+  ansible.builtin.template:
+    src: update-kiosk.j2
+    dest: /usr/local/bin/update-kiosk
+    owner: root
+    group: root
+    mode: "0755"
+
+# Optional scheduled auto-pull, shipped DISABLED. Enable manually if you ever
+# want hands-off updates: `sudo systemctl enable --now kiosk-update.timer`
+- name: Install (disabled) auto-update service + timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - kiosk-update.service
+    - kiosk-update.timer
+  notify: Reload systemd
+
+- name: Boot to console (no graphical target needed)
+  ansible.builtin.file:
+    src: /lib/systemd/system/multi-user.target
+    dest: /etc/systemd/system/default.target
+    state: link
+    force: true
+
+- name: Flush handlers before enabling the service
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start kiosk
+  ansible.builtin.systemd:
+    name: kiosk.service
+    enabled: "{{ kiosk_start_compositor }}"
+    state: "{{ 'started' if kiosk_start_compositor else 'stopped' }}"

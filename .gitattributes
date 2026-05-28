@@ -1,0 +1,7 @@
+# Force LF on everything that runs on the pi, regardless of dev OS (Windows included).
+* text=auto eol=lf
+*.sh    text eol=lf
+*.j2    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+Vagrantfile text eol=lf

@@ -1,0 +1,12 @@
+# Managed by Ansible — edit the template, not this file.
+# Shipped DISABLED. Enable with: sudo systemctl enable --now kiosk-update.timer
+[Unit]
+Description=Periodic kiosk config update
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
