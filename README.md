@@ -25,13 +25,21 @@ concurrently.
 ```
 Vagrantfile                 x86 Debian VM for dev parity
 bootstrap.sh                first-flash: install git+ansible, pull, apply
+package.json                npm workspaces + `npm run dev` orchestration
+app/                        React + Vite frontend (remote-navigable)
+server/                     Fastify API (TypeScript)
+db/                         schema.sql + seed.sql (SQLite catalog)
 ansible/
   site.yml                  top-level play
   ansible.cfg               inventory/roles defaults
   inventory/localhost.yml   every target provisions itself locally
-  group_vars/all.yml        ← the file you edit most (URL, repo, flags)
+  group_vars/all.yml        ← the file you edit most (URL, repo, paths)
   roles/
-    base/                   apt, unattended-upgrades, git
+    base/                   apt, unattended-upgrades, git, ssh
+    nodejs/                 Node.js (NodeSource)
+    database/               sqlite3 + schema/seed, service user
+    backend/                Fastify API build + systemd service
+    app/                    frontend build + nginx (serves SPA, proxies /api)
     kiosk-user/             dedicated locked-down kiosk user
     display/                cage + chromium
     kiosk-service/          systemd unit, launch script, update-kiosk helper
@@ -72,29 +80,50 @@ vagrant provision   # re-run after changes; second run should report no changes 
 vagrant ssh         # poke around
 ```
 
-Confirm the app layer is serving correctly in the VM:
+Because it provisions the **full app stack** (nginx + API + SQLite), you can
+browse it from your host at **http://localhost:8080** (forwarded from the VM),
+or check it over SSH:
 
 ```sh
-vagrant ssh -c "systemctl is-active nginx; grep -c 'Kiosk is running' /var/www/html/index.html"
-# -> active
-# -> 1
+vagrant ssh -c "systemctl is-active nginx pitv-backend; curl -s localhost/api/books | head -c 200"
 ```
 
-> The VM validates the playbook and the **web app** itself. It does **not** run
-> the on-screen compositor: `cage`/libseat needs a real DRM graphics seat, which
-> VirtualBox doesn't provide — trying to launch it there fails with
-> `Failed to start a DRM session`. The compositor layer is verified on the
-> actual pi, which has a real GPU and seat.
+> The VM validates the playbook, the **web app**, and the **API/database** end
+> to end. It does **not** run the on-screen compositor: `cage`/libseat needs a
+> real DRM graphics seat, which VirtualBox doesn't provide. The compositor layer
+> is verified on the actual pi, which has a real GPU and seat.
 
-## Placeholder app
+## The kiosk app (architecture + local dev)
 
-Out of the box the `app` role serves a static "hello world" page from nginx on
-the device, and `kiosk_url` points at `http://localhost` — so you can confirm
-the full pipeline (boot → compositor → Chromium → page) before a real app
-exists. The page shows a live clock so you can tell it's actually rendering.
+The kiosk displays a library catalog app, self-hosted on the device:
 
-Once you have a real app, set `kiosk_serve_local_app: false` and point
-`kiosk_url` at it.
+| Layer    | Tech                                  | On the pi                          |
+|----------|---------------------------------------|------------------------------------|
+| Frontend | React + Vite, spatial navigation      | built to `app/dist`, served by nginx |
+| Backend  | Fastify (TypeScript)                  | `pitv-backend.service` on port 3000 |
+| Database | SQLite (`db/schema.sql`, `db/seed.sql`) | `/var/lib/pitv/library.db`        |
+
+nginx serves the built frontend and reverse-proxies `/api` to the backend. The
+frontend is navigated with **arrow keys (D-pad), Enter (OK), and Back** so it's
+ready for a TV remote (the remote hardware → key mapping is a separate, later
+concern).
+
+### Local dev loop (just Node, no pi/VM)
+
+```sh
+npm install      # installs app + server workspaces
+npm run dev      # seeds a local SQLite DB, then runs API + Vite together
+```
+
+Open **http://localhost:5173** and navigate with your keyboard arrow keys +
+Enter (identical to the real remote). Vite proxies `/api` to the local Fastify
+server on :3000.
+
+> Commit `package-lock.json` files after your first `npm install` so every dev
+> and the pi resolve identical dependency versions.
+
+To point the kiosk at a remote app instead of this local stack, set
+`kiosk_serve_local_app: false` and change `kiosk_url`.
 
 ## Customizing
 

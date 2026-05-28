@@ -14,6 +14,9 @@ Vagrant.configure("2") do |config|
   config.vm.box_version = ">= 12.0.0"
   config.vm.hostname = "pi-kiosk-dev"
 
+  # Browse the full app stack (nginx + API + DB) from the host at localhost:8080.
+  config.vm.network "forwarded_port", guest: 80, host: 8080
+
   config.vm.provider "virtualbox" do |vb|
     vb.gui    = true          # show a window so you can see Chromium if you launch it
     vb.memory = 2048

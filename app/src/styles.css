@@ -1,0 +1,102 @@
+:root {
+  --bg: #0f172a;
+  --fg: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --card: #1e293b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, sans-serif;
+  /* Hide the cursor — this is a remote-driven kiosk, not a mouse UI. */
+  cursor: none;
+}
+
+.app {
+  padding: 4vmin;
+}
+
+.header h1 {
+  font-size: 6vmin;
+  margin: 0;
+  color: var(--accent);
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 2.4vmin;
+  margin: 1vmin 0 4vmin;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(28vmin, 1fr));
+  gap: 3vmin;
+}
+
+.card {
+  background: var(--card);
+  border: 0.4vmin solid transparent;
+  border-radius: 1.2vmin;
+  padding: 2.4vmin;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease;
+}
+
+/* Spatial-navigation focus state — what the remote highlights. */
+.card--focused {
+  border-color: var(--accent);
+  transform: scale(1.04);
+  box-shadow: 0 0 4vmin rgba(56, 189, 248, 0.35);
+}
+
+.card__title {
+  margin: 0 0 0.8vmin;
+  font-size: 2.6vmin;
+}
+
+.card__author {
+  margin: 0 0 1.2vmin;
+  color: var(--muted);
+  font-size: 2vmin;
+}
+
+.card__tag {
+  display: inline-block;
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent);
+  border-radius: 0.6vmin;
+  padding: 0.4vmin 1.2vmin;
+  font-size: 1.7vmin;
+}
+
+.card__desc {
+  margin: 1.6vmin 0 0;
+  font-size: 1.9vmin;
+  color: var(--fg);
+}
+
+.error {
+  color: #f87171;
+  font-size: 2.4vmin;
+}
+
+.selection {
+  margin-top: 4vmin;
+  font-size: 2.4vmin;
+  color: var(--muted);
+}

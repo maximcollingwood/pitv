@@ -1,19 +1,62 @@
 ---
-# Placeholder app: serve a static "hello world" page from nginx so the whole
-# kiosk pipeline (boot → compositor → Chromium → page) can be confirmed before
-# a real app exists. Disable by setting kiosk_serve_local_app: false.
+# Builds the React frontend and serves it via nginx, reverse-proxying /api to
+# the backend service. Disable the whole local app stack with
+# kiosk_serve_local_app: false.
 - name: Install nginx
   ansible.builtin.apt:
     name: nginx
     state: present
 
-- name: Deploy placeholder page
+- name: Ensure frontend directory exists
+  ansible.builtin.file:
+    path: "{{ app_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy frontend source
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../app/"
+    dest: "{{ app_root }}/"
+    owner: root
+    group: root
+    mode: preserve
+
+- name: Install frontend dependencies
+  ansible.builtin.command:
+    cmd: /usr/bin/npm install --no-audit --no-fund
+    chdir: "{{ app_root }}"
+  changed_when: false
+
+- name: Build frontend
+  ansible.builtin.command:
+    cmd: /usr/bin/npm run build
+    chdir: "{{ app_root }}"
+  changed_when: false
+
+- name: Install nginx site config
   ansible.builtin.template:
-    src: index.html.j2
-    dest: /var/www/html/index.html
+    src: nginx-site.conf.j2
+    dest: /etc/nginx/sites-available/pitv
     owner: root
     group: root
     mode: "0644"
+  notify: Reload nginx
+
+- name: Enable pitv site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/pitv
+    dest: /etc/nginx/sites-enabled/pitv
+    state: link
+    force: true
+  notify: Reload nginx
+
+- name: Disable default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
 
 - name: Ensure nginx is enabled and running
   ansible.builtin.systemd:

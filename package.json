@@ -1,0 +1,21 @@
+{
+  "name": "pitv",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Temple library kiosk app (frontend + API + SQLite)",
+  "workspaces": [
+    "app",
+    "server"
+  ],
+  "scripts": {
+    "predev": "npm --workspace server run init-db",
+    "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm --workspace server run dev",
+    "dev:web": "npm --workspace app run dev",
+    "build": "npm --workspace server run build && npm --workspace app run build",
+    "typecheck": "npm --workspace app run typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.0"
+  }
+}

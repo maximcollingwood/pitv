@@ -1,0 +1,58 @@
+---
+- name: Ensure backend directory exists
+  ansible.builtin.file:
+    path: "{{ backend_root }}"
+    state: directory
+    owner: "{{ backend_user }}"
+    group: "{{ backend_user }}"
+    mode: "0755"
+
+- name: Deploy backend source
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../server/"
+    dest: "{{ backend_root }}/"
+    owner: "{{ backend_user }}"
+    group: "{{ backend_user }}"
+    mode: preserve
+  notify: Restart backend
+
+- name: Install backend dependencies
+  ansible.builtin.command:
+    cmd: /usr/bin/npm install --no-audit --no-fund
+    chdir: "{{ backend_root }}"
+  changed_when: false
+
+- name: Build backend
+  ansible.builtin.command:
+    cmd: /usr/bin/npm run build
+    chdir: "{{ backend_root }}"
+  changed_when: false
+  notify: Restart backend
+
+- name: Fix backend ownership after install/build
+  ansible.builtin.file:
+    path: "{{ backend_root }}"
+    state: directory
+    owner: "{{ backend_user }}"
+    group: "{{ backend_user }}"
+    recurse: true
+
+- name: Install backend systemd unit
+  ansible.builtin.template:
+    src: pitv-backend.service.j2
+    dest: /etc/systemd/system/pitv-backend.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart backend
+
+- name: Flush handlers before enabling the service
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start backend
+  ansible.builtin.systemd:
+    name: pitv-backend.service
+    enabled: true
+    state: started

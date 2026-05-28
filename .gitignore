@@ -8,3 +8,12 @@
 # Local secrets — use ansible-vault, never commit plaintext
 *.vault
 secrets.yml
+
+# Node / app build artifacts
+node_modules/
+dist/
+server/data/
+*.db
+*.db-journal
+*.db-wal
+npm-debug.log*
