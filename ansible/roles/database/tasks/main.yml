@@ -1,12 +1,20 @@
 ---
+# Create only when absent. Modifying an existing user in place fails when the
+# backend service is already running as it (usermod: "user is currently used by
+# process N"), so we never reconcile attributes of an existing account.
+- name: Check whether backend service user exists
+  ansible.builtin.command: "id {{ backend_user }}"
+  register: backend_user_check
+  changed_when: false
+  failed_when: false
+
 - name: Create backend service user
   ansible.builtin.user:
     name: "{{ backend_user }}"
     system: true
     shell: /usr/sbin/nologin
-    home: "{{ backend_root }}"
     create_home: false
-    state: present
+  when: backend_user_check.rc != 0
 
 - name: Install sqlite3 CLI
   ansible.builtin.apt:
