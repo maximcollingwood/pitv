@@ -11,7 +11,14 @@
       - ca-certificates
       - unattended-upgrades
       - python3
+      - openssh-server
     state: present
+
+- name: Enable and start SSH on boot
+  ansible.builtin.systemd:
+    name: ssh
+    enabled: true
+    state: started
 
 - name: Enable unattended security upgrades
   ansible.builtin.copy:
