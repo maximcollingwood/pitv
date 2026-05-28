@@ -48,6 +48,17 @@
     state: link
     force: true
 
+# Escape hatch: keep a real getty permanently running on a dedicated VT so
+# Ctrl+Alt+F{{ admin_console_tty }} always lands on a login prompt. We can't
+# rely on logind's on-demand autovt here — when the active session is the cage
+# (wlroots) compositor, switching VTs often doesn't spawn a getty, so the target
+# tty is blank and the hotkey appears to "do nothing".
+- name: Keep an admin console running on tty{{ admin_console_tty }}
+  ansible.builtin.systemd:
+    name: "getty@tty{{ admin_console_tty }}.service"
+    enabled: true
+    state: started
+
 - name: Flush handlers before enabling the service
   ansible.builtin.meta: flush_handlers
 

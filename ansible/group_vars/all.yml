@@ -41,6 +41,10 @@ kiosk_groups:                         # seat/DRM/input access for the compositor
   - tty
 kiosk_data_dir: "/home/{{ kiosk_user }}/.kiosk-profile"  # disposable Chromium state
 
+# Escape-hatch console: Ctrl+Alt+F<this> reaches a login shell; Ctrl+Alt+F1
+# returns to the kiosk. A getty is kept running here permanently.
+admin_console_tty: 2
+
 # When false, the playbook installs everything but does NOT start the on-screen
 # compositor. The dev VM sets this false (VirtualBox has no real DRM/GPU seat),
 # so `vagrant provision` validates the whole playbook without needing a GPU.
