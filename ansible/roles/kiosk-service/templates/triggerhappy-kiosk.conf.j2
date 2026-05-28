@@ -1,0 +1,10 @@
+# Managed by Ansible — kiosk console escape hatch.
+# triggerhappy reads raw evdev key events, so VT switching works even though the
+# cage compositor doesn't forward Ctrl+Alt+F<n>. `chvt` does the actual switch
+# (confirmed working). sudo is needed because thd runs as the 'nobody' user.
+#
+# Format: <key combo>  <event: 1=press>  <command>
+KEY_LEFTCTRL+KEY_LEFTALT+KEY_F{{ admin_console_tty }} 1 /usr/bin/sudo /usr/bin/chvt {{ admin_console_tty }}
+KEY_RIGHTCTRL+KEY_RIGHTALT+KEY_F{{ admin_console_tty }} 1 /usr/bin/sudo /usr/bin/chvt {{ admin_console_tty }}
+KEY_LEFTCTRL+KEY_LEFTALT+KEY_F1 1 /usr/bin/sudo /usr/bin/chvt 1
+KEY_RIGHTCTRL+KEY_RIGHTALT+KEY_F1 1 /usr/bin/sudo /usr/bin/chvt 1

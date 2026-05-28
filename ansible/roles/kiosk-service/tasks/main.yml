@@ -59,6 +59,40 @@
     enabled: true
     state: started
 
+# The cage (wlroots) compositor doesn't forward Ctrl+Alt+F<n> to switch VTs,
+# but `chvt` works fine. triggerhappy reads raw evdev key events (independent of
+# the compositor) and runs the switch directly — a robust escape hatch.
+- name: Install triggerhappy (evdev hotkey daemon)
+  ansible.builtin.apt:
+    name: triggerhappy
+    state: present
+
+- name: Allow triggerhappy (runs as 'nobody') to switch VTs
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/kiosk-chvt
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      # Kiosk console escape hatch: let the triggerhappy daemon switch VTs.
+      nobody ALL=(root) NOPASSWD: /usr/bin/chvt
+
+- name: Install console-switch hotkey bindings
+  ansible.builtin.template:
+    src: triggerhappy-kiosk.conf.j2
+    dest: /etc/triggerhappy/triggers.d/kiosk-console.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart triggerhappy
+
+- name: Enable and start triggerhappy
+  ansible.builtin.systemd:
+    name: triggerhappy.service
+    enabled: true
+    state: started
+
 - name: Flush handlers before enabling the service
   ansible.builtin.meta: flush_handlers
 

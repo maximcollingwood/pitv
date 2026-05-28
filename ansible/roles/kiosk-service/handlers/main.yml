@@ -8,3 +8,8 @@
     name: kiosk.service
     state: restarted
   when: kiosk_start_compositor
+
+- name: Restart triggerhappy
+  ansible.builtin.systemd:
+    name: triggerhappy.service
+    state: restarted
