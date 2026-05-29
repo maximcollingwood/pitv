@@ -28,6 +28,19 @@
     force: false
   notify: Restart backend
 
+# Optional YouTube Data API key for full-playlist support (without it, playlists
+# fall back to the keyless RSS feed of ~15 recent videos). Lives only on the
+# device (never in git). Paste your key into /etc/kiosk/youtube.env and restart.
+- name: Create YouTube API key env file (if absent)
+  ansible.builtin.copy:
+    dest: /etc/kiosk/youtube.env
+    content: "YOUTUBE_API_KEY=\n"
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  notify: Restart backend
+
 - name: Deploy backend source
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../server/"

@@ -17,10 +17,17 @@ export function Tile({
 }) {
   const { ref, focused } = useFocusable({ focusKey, onEnterPress: onEnter });
 
-  // Expose this tile's action while focused, so the phone remote's OK can fire it.
+  // Expose this tile's action while focused (so the remote's OK can fire it),
+  // and keep the focused tile on-screen for long lists / playlists.
   useEffect(() => {
-    if (focused) setCurrentEnter(onEnter ?? null);
-  }, [focused, onEnter]);
+    if (focused) {
+      setCurrentEnter(onEnter ?? null);
+      (ref.current as HTMLElement | null)?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    }
+  }, [focused, onEnter, ref]);
 
   return (
     <div

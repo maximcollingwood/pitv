@@ -11,6 +11,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DB_PATH ?? resolve(__dirname, "../data/library.db");
 const port = Number(process.env.PORT ?? 3000);
 const adminPin = process.env.ADMIN_PIN ?? "0000";
+const youtubeApiKey = process.env.YOUTUBE_API_KEY ?? "";
 
 const db = new Database(dbPath, { fileMustExist: true });
 db.pragma("journal_mode = WAL");
@@ -102,8 +103,12 @@ app.get("/api/videos", async () =>
   db.prepare("SELECT * FROM videos ORDER BY category, title").all(),
 );
 
-// Individual videos in a YouTube playlist, via the keyless RSS feed (no API
-// key needed). Note: the feed returns the most recent ~15 videos.
+// Individual videos in a YouTube playlist.
+interface PlaylistVideo {
+  id: string;
+  title: string;
+}
+
 function decodeXml(s: string): string {
   return s
     .replace(/&amp;/g, "&")
@@ -114,23 +119,63 @@ function decodeXml(s: string): string {
     .replace(/&apos;/g, "'");
 }
 
+// Keyless fallback via the RSS feed — returns only the most recent ~15 videos.
+async function playlistViaRss(list: string): Promise<PlaylistVideo[] | null> {
+  const res = await fetch(
+    `https://www.youtube.com/feeds/videos.xml?playlist_id=${encodeURIComponent(list)}`,
+  );
+  if (!res.ok) return null;
+  const xml = await res.text();
+  return xml
+    .split("<entry>")
+    .slice(1)
+    .map((entry) => ({
+      id: /<yt:videoId>(.*?)<\/yt:videoId>/.exec(entry)?.[1] ?? "",
+      title: decodeXml(/<title>(.*?)<\/title>/.exec(entry)?.[1] ?? ""),
+    }))
+    .filter((v) => v.id);
+}
+
+// Full playlist via the YouTube Data API, paginated. Requires YOUTUBE_API_KEY.
+// Returns null on any API error so the caller can fall back to RSS.
+async function playlistViaApi(list: string): Promise<PlaylistVideo[] | null> {
+  const videos: PlaylistVideo[] = [];
+  let pageToken = "";
+  for (let page = 0; page < 40; page++) {
+    // safety cap: 40 × 50 = 2000
+    const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
+    url.searchParams.set("part", "snippet");
+    url.searchParams.set("maxResults", "50");
+    url.searchParams.set("playlistId", list);
+    url.searchParams.set("key", youtubeApiKey);
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      items?: { snippet?: { title?: string; resourceId?: { videoId?: string } } }[];
+      nextPageToken?: string;
+    };
+    for (const it of data.items ?? []) {
+      const id = it.snippet?.resourceId?.videoId;
+      const title = it.snippet?.title ?? "";
+      if (!id || title === "Private video" || title === "Deleted video") continue;
+      videos.push({ id, title });
+    }
+    if (!data.nextPageToken) break;
+    pageToken = data.nextPageToken;
+  }
+  return videos;
+}
+
 app.get<{ Querystring: { list?: string } }>("/api/playlist", async (req, reply) => {
   const list = req.query.list;
   if (!list) return reply.code(400).send({ error: "list required" });
   try {
-    const res = await fetch(
-      `https://www.youtube.com/feeds/videos.xml?playlist_id=${encodeURIComponent(list)}`,
-    );
-    if (!res.ok) return reply.code(502).send({ error: "playlist fetch failed" });
-    const xml = await res.text();
-    const videos = xml
-      .split("<entry>")
-      .slice(1)
-      .map((entry) => ({
-        id: /<yt:videoId>(.*?)<\/yt:videoId>/.exec(entry)?.[1] ?? "",
-        title: decodeXml(/<title>(.*?)<\/title>/.exec(entry)?.[1] ?? ""),
-      }))
-      .filter((v) => v.id);
+    // Prefer the full Data API; fall back to RSS if no key is set or it errors.
+    let videos = youtubeApiKey ? await playlistViaApi(list) : null;
+    if (!videos) videos = await playlistViaRss(list);
+    if (!videos) return reply.code(502).send({ error: "playlist fetch failed" });
     return { videos };
   } catch {
     return reply.code(502).send({ error: "playlist fetch failed" });

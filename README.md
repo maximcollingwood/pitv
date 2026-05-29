@@ -131,9 +131,10 @@ The TV shows a home screen that navigates to **Articles**, **Kirtans**,
 **Videos**, and **Catalog**. Kirtans and Videos browse by category, then play in
 a framed YouTube player (auto-starts; remote **OK** = play/pause, **Left/Right**
 = seek ±10s, **Up/Down** = volume, via the YouTube IFrame API). Playlist links
-drill into their individual videos first (titles come from YouTube's keyless RSS
-feed — most recent ~15). Articles open a reader; Catalog lists books. All four
-are edited from the phone (the editor's menu has a section per resource).
+drill into their individual videos first (full playlists when a YouTube Data API
+key is set on the device — otherwise the keyless RSS feed, ~15 recent). Articles
+open a reader; Catalog lists books. All four are edited from the phone (the
+editor's menu has a section per resource).
 
 - A **persistent QR badge** sits in the corner of every TV screen. Scanning it
   opens an **open remote** (`http://<hostname>.local/remote`) — a touch D-pad
@@ -152,6 +153,14 @@ are edited from the phone (the editor's menu has a section per resource).
 - Public read endpoints (`/api/articles`, `/api/books`) are open; writes
   (`/api/admin/*`) require a token obtained by POSTing the PIN to
   `/api/admin/login`.
+
+For **full playlists**, set a [YouTube Data API v3](https://console.cloud.google.com/apis/credentials)
+key on the device (also kept out of git):
+```sh
+echo 'YOUTUBE_API_KEY=YOUR_KEY' | sudo tee /etc/kiosk/youtube.env
+sudo systemctl restart pitv-backend
+```
+Without a key, playlists still work via the keyless RSS feed (~15 recent videos).
 
 ## Customizing
 
