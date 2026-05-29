@@ -9,7 +9,8 @@ INSERT OR IGNORE INTO sections (id, type, name, position) VALUES
   (1, 'articles', 'Articles', 0),
   (2, 'media',    'Kirtans',  1),
   (3, 'media',    'Videos',   2),
-  (4, 'catalog',  'Catalog',  3);
+  (4, 'catalog',  'Catalog',  3),
+  (5, 'lyrics',   'Songs',    4);
 
 INSERT OR IGNORE INTO articles (id, section_id, title, body) VALUES
   (1, 1, 'How to Control Lust',
@@ -20,6 +21,24 @@ Begin with small, consistent practice: rise at the same hour, sit quietly, and t
    'Patience is not passive waiting. It is the active, steady trust that effort sincerely offered will bear fruit in its own season.
 
 The farmer does not pull the seedling to make it grow. He waters, weeds, and waits.');
+
+-- A lyrics item (lives in the articles table; verses separated by blank lines).
+INSERT OR IGNORE INTO articles (id, section_id, title, body) VALUES
+  (3, 5, 'Hare Krishna Maha Mantra',
+   'Hare Krishna Hare Krishna
+Krishna Krishna Hare Hare
+Hare Rama Hare Rama
+Rama Rama Hare Hare
+
+Hare Krishna Hare Krishna
+Krishna Krishna Hare Hare
+Hare Rama Hare Rama
+Rama Rama Hare Hare
+
+Hare Krishna Hare Krishna
+Krishna Krishna Hare Hare
+Hare Rama Hare Rama
+Rama Rama Hare Hare');
 
 INSERT OR IGNORE INTO media_items (id, section_id, category, title, youtube_url, is_playlist) VALUES
   (1, 2, 'Morning', 'Mangala Charana',          'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 0),

@@ -19,6 +19,7 @@ interface Field {
 
 const TYPE_LABEL: Record<SectionType, string> = {
   articles: "Articles",
+  lyrics: "Song lyrics",
   media: "YouTube videos",
   catalog: "Book catalog",
 };
@@ -27,6 +28,10 @@ const TYPE_FIELDS: Record<SectionType, Field[]> = {
   articles: [
     { name: "title", label: "Title", type: "text" },
     { name: "body", label: "Body", type: "textarea" },
+  ],
+  lyrics: [
+    { name: "title", label: "Title", type: "text" },
+    { name: "body", label: "Lyrics (separate verses with a blank line)", type: "textarea" },
   ],
   media: [
     { name: "category", label: "Category", type: "text" },

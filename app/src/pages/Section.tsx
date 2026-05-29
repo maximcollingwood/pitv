@@ -43,14 +43,20 @@ export function Section() {
       {error && <p className="error">{error}</p>}
       {!error && items.length === 0 && <p className="muted">Nothing here yet.</p>}
 
-      {section.type === "articles" && (
+      {(section.type === "articles" || section.type === "lyrics") && (
         <Grid className="grid grid--list">
           {items.map((it) => (
             <Tile
               key={it.id}
               focusKey={`item-${it.id}`}
               className="tile--list"
-              onEnter={() => navigate(`/s/${id}/article/${it.id}`)}
+              onEnter={() =>
+                navigate(
+                  section.type === "lyrics"
+                    ? `/s/${id}/lyrics/${it.id}`
+                    : `/s/${id}/article/${it.id}`,
+                )
+              }
             >
               <span className="tile__title">{String(it.title)}</span>
             </Tile>

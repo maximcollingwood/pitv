@@ -132,6 +132,9 @@ title/subtitle and a set of **sections** defined per device (stored in the DB,
 served by `GET /api/config`). Every section is an instance of a **preset type**:
 
 - **Articles** — list of titles → a reader.
+- **Song lyrics** — list of titles → a full-screen display: verses laid out in
+  newspaper-style columns (top-to-bottom, then next column) with the text
+  auto-sized as large as it can be while fitting the screen.
 - **YouTube videos** — browse by category → framed player (auto-starts; remote
   **OK** = play/pause, **Left/Right** = seek ±10s, **Up/Down** = volume, via the
   YouTube IFrame API). Playlist links drill into their individual videos first

@@ -21,6 +21,9 @@ const app = Fastify({ logger: true });
 // Which table/columns back each preset section type.
 const SECTION_TYPES: Record<string, { table: string; columns: string[]; orderBy: string }> = {
   articles: { table: "articles", columns: ["title", "body"], orderBy: "title" },
+  // Lyrics share the article shape (title + body of blank-line-separated verses);
+  // only the TV display differs, so they reuse the articles table.
+  lyrics: { table: "articles", columns: ["title", "body"], orderBy: "title" },
   media: {
     table: "media_items",
     columns: ["category", "title", "youtube_url", "is_playlist"],

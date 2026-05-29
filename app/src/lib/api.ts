@@ -1,5 +1,5 @@
 // ── Types ───────────────────────────────────────────────────────────────────
-export type SectionType = "articles" | "media" | "catalog";
+export type SectionType = "articles" | "lyrics" | "media" | "catalog";
 
 export interface Section {
   id: number;

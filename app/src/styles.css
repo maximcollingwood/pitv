@@ -591,6 +591,34 @@ body.lock {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Lyrics (full-screen, auto-fit, multi-column by verse) ─────────────────── */
+.lyrics {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: none;
+  padding: 1.5vmin 2vmin;
+  overflow: hidden;
+}
+
+.lyrics__cols {
+  height: 100%;
+  width: 100%;
+  /* column-count + font-size are set dynamically by the fit algorithm. */
+  column-gap: 4vmin;
+  column-fill: auto;
+  column-rule: 1px solid var(--hairline);
+  line-height: 1.22;
+  font-weight: 600;
+}
+
+.verse {
+  break-inside: avoid;
+  white-space: pre-wrap;
+  margin: 0 0 0.7em;
+}
+
 /* ── Admin resource menu + checkbox rows ───────────────────────────────────── */
 .admin__menu {
   display: flex;
