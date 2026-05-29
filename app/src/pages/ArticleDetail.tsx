@@ -37,10 +37,10 @@ export function ArticleDetail() {
     };
 
     window.addEventListener("keydown", onKey);
-    window.addEventListener("pitv:remote-dir", onRemote);
+    window.addEventListener("pitv:remote", onRemote);
     return () => {
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener("pitv:remote-dir", onRemote);
+      window.removeEventListener("pitv:remote", onRemote);
     };
   }, [article]);
 

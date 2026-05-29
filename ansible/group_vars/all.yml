@@ -65,3 +65,4 @@ chromium_flags:
   - "--fast"
   - "--fast-start"
   - "--check-for-update-interval=31536000"
+  - "--autoplay-policy=no-user-gesture-required"   # let videos auto-start with sound

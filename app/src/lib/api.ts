@@ -72,14 +72,15 @@ async function parse<T>(res: Response): Promise<T> {
 }
 
 function authFetch<T>(url: string, opts: RequestInit = {}): Promise<T> {
-  return fetch(url, {
-    ...opts,
-    headers: {
-      "content-type": "application/json",
-      Authorization: `Bearer ${getToken() ?? ""}`,
-      ...(opts.headers ?? {}),
-    },
-  }).then((r) => parse<T>(r));
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${getToken() ?? ""}`,
+    ...((opts.headers as Record<string, string>) ?? {}),
+  };
+  // Only declare a JSON body when we actually send one. An empty body with
+  // content-type: application/json makes Fastify reject the request (400),
+  // which is what broke DELETE.
+  if (opts.body) headers["content-type"] = "application/json";
+  return fetch(url, { ...opts, headers }).then((r) => parse<T>(r));
 }
 
 // ── API ─────────────────────────────────────────────────────────────────────

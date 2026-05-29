@@ -23,16 +23,18 @@ export function RemoteListener() {
         return;
       }
 
+      // Default behaviors: move focus, activate the focused tile, or go back.
       if ((DIRECTIONS as readonly string[]).includes(action)) {
-        // Move focus (list/grid pages)...
         navigateByDirection(action, {});
-        // ...and let content pages (e.g. the article reader) scroll.
-        window.dispatchEvent(new CustomEvent("pitv:remote-dir", { detail: action }));
       } else if (action === "select") {
         fireEnter();
       } else if (action === "back") {
         if (location.pathname !== "/") navigate(-1);
       }
+
+      // Broadcast so content pages can add behavior (reader scroll, player
+      // play/pause) without coupling to the listener.
+      window.dispatchEvent(new CustomEvent("pitv:remote", { detail: action }));
     };
 
     return () => source.close();
