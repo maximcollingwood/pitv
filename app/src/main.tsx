@@ -9,7 +9,7 @@ import { Home } from "./pages/Home";
 import { Articles } from "./pages/Articles";
 import { ArticleDetail } from "./pages/ArticleDetail";
 import { Catalog } from "./pages/Catalog";
-import { MediaCategories, MediaItems } from "./pages/Media";
+import { MediaCategories, MediaItems, PlaylistBrowse } from "./pages/Media";
 import { Player } from "./pages/Player";
 import { Remote } from "./pages/Remote";
 import { Admin } from "./pages/Admin";
@@ -31,7 +31,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/kirtans/:category" element={<MediaItems type="kirtans" />} />
           <Route path="/videos" element={<MediaCategories type="videos" />} />
           <Route path="/videos/:category" element={<MediaItems type="videos" />} />
+          <Route path="/playlist/:type/:id" element={<PlaylistBrowse />} />
           <Route path="/watch/:type/:id" element={<Player />} />
+          <Route path="/play/:videoId" element={<Player />} />
         </Route>
         {/* Phone (touch-driven) */}
         <Route path="/remote" element={<Remote />} />

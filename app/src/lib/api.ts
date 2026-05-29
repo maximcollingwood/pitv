@@ -103,6 +103,10 @@ export const api = {
   videos: () => fetch("/api/videos").then((r) => parse<Video[]>(r)),
   media: (type: MediaType) =>
     fetch(`/api/${type}`).then((r) => parse<MediaItem[]>(r)),
+  playlist: (list: string) =>
+    fetch(`/api/playlist?list=${encodeURIComponent(list)}`).then((r) =>
+      parse<{ videos: { id: string; title: string }[] }>(r),
+    ),
 
   login: (pin: string) =>
     fetch("/api/admin/login", {

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 import { api, type MediaItem, type MediaType } from "../lib/api";
 import { useRemoteBack } from "../lib/useRemoteBack";
+import { parseYouTube } from "../lib/youtube";
 import { Grid } from "../components/Grid";
 import { Tile } from "../components/Tile";
 
@@ -86,9 +87,66 @@ export function MediaItems({ type }: { type: MediaType }) {
             key={item.id}
             focusKey={`item-${item.id}`}
             className="tile--list"
-            onEnter={() => navigate(`/watch/${type}/${item.id}`)}
+            onEnter={() =>
+              navigate(
+                parseYouTube(item.youtube_url).kind === "playlist"
+                  ? `/playlist/${type}/${item.id}`
+                  : `/watch/${type}/${item.id}`,
+              )
+            }
           >
             <span className="tile__title">{item.title}</span>
+          </Tile>
+        ))}
+      </Grid>
+    </div>
+  );
+}
+
+// Drill into a playlist's individual videos.
+export function PlaylistBrowse() {
+  useRemoteBack();
+  const navigate = useNavigate();
+  const { type = "videos", id = "" } = useParams();
+  const [videos, setVideos] = useState<{ id: string; title: string }[]>([]);
+  const [heading, setHeading] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .media(type as MediaType)
+      .then((all) => {
+        const item = all.find((i) => String(i.id) === id);
+        if (!item) return setError("Not found.");
+        setHeading(item.title);
+        const parsed = parseYouTube(item.youtube_url);
+        if (parsed.kind !== "playlist") return setError("Not a playlist.");
+        return api.playlist(parsed.id).then((r) => setVideos(r.videos));
+      })
+      .catch(() => setError("Could not load playlist."));
+  }, [type, id]);
+
+  useEffect(() => {
+    if (videos.length > 0) setFocus("pl-0");
+  }, [videos]);
+
+  return (
+    <div className="page">
+      <header className="page__header">
+        <h1 className="page__title">{heading}</h1>
+      </header>
+      {error && <p className="error">{error}</p>}
+      {!error && videos.length === 0 && <p className="muted">Loading…</p>}
+
+      <Grid className="grid grid--list">
+        {videos.map((v, i) => (
+          <Tile
+            key={v.id}
+            focusKey={`pl-${i}`}
+            className="tile--list"
+            onEnter={() => navigate(`/play/${v.id}`)}
+          >
+            <span className="tile__title">{v.title}</span>
           </Tile>
         ))}
       </Grid>

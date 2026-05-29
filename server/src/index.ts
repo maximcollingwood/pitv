@@ -102,6 +102,41 @@ app.get("/api/videos", async () =>
   db.prepare("SELECT * FROM videos ORDER BY category, title").all(),
 );
 
+// Individual videos in a YouTube playlist, via the keyless RSS feed (no API
+// key needed). Note: the feed returns the most recent ~15 videos.
+function decodeXml(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'");
+}
+
+app.get<{ Querystring: { list?: string } }>("/api/playlist", async (req, reply) => {
+  const list = req.query.list;
+  if (!list) return reply.code(400).send({ error: "list required" });
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/feeds/videos.xml?playlist_id=${encodeURIComponent(list)}`,
+    );
+    if (!res.ok) return reply.code(502).send({ error: "playlist fetch failed" });
+    const xml = await res.text();
+    const videos = xml
+      .split("<entry>")
+      .slice(1)
+      .map((entry) => ({
+        id: /<yt:videoId>(.*?)<\/yt:videoId>/.exec(entry)?.[1] ?? "",
+        title: decodeXml(/<title>(.*?)<\/title>/.exec(entry)?.[1] ?? ""),
+      }))
+      .filter((v) => v.id);
+    return { videos };
+  } catch {
+    return reply.code(502).send({ error: "playlist fetch failed" });
+  }
+});
+
 // ── Login ───────────────────────────────────────────────────────────────────
 app.post<{ Body: { pin?: string } }>("/api/admin/login", async (req, reply) => {
   const pin = String(req.body?.pin ?? "");

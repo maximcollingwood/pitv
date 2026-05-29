@@ -533,16 +533,37 @@ body.lock {
   padding: 0.5rem;
 }
 
-/* ── Video player (TV) ─────────────────────────────────────────────────────── */
+/* ── Video player (TV) — framed, not fullscreen ────────────────────────────── */
 .player {
-  position: fixed;
-  inset: 0;
-  background: #000;
+  min-height: 100vh;
   cursor: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1rem, 3vh, 2rem);
+  padding: clamp(2rem, 5vw, 4rem);
+}
+
+.player__title {
+  font-size: clamp(1.5rem, 3.5vw, 2.6rem);
+  font-weight: 700;
+  margin: 0;
+  text-align: center;
+}
+
+.player__stage {
+  width: 100%;
+  max-width: 1280px;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+  box-shadow: var(--shadow-focus);
 }
 
 .player__frame,
-.player iframe {
+.player__stage iframe {
   width: 100%;
   height: 100%;
   border: 0;
@@ -550,14 +571,22 @@ body.lock {
 }
 
 .player__hint {
-  position: absolute;
-  bottom: 1rem;
-  left: 0;
-  right: 0;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
   font-size: 1rem;
-  pointer-events: none;
+  margin: 0;
+}
+
+.player__flash {
+  position: fixed;
+  top: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  padding: 0.6rem 1.4rem;
+  border-radius: 999px;
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Admin resource menu + checkbox rows ───────────────────────────────────── */
