@@ -17,3 +17,11 @@ Begin with small, consistent practice: rise at the same hour, sit quietly, and t
    'Patience is not passive waiting. It is the active, steady trust that effort sincerely offered will bear fruit in its own season.
 
 The farmer does not pull the seedling to make it grow. He waters, weeds, and waits. So too with the cultivation of character.');
+
+INSERT OR IGNORE INTO kirtans (id, category, title, youtube_url) VALUES
+  (1, 'Morning', 'Mangala Charana',     'https://www.youtube.com/watch?v=dQw4w9WgXcQ'),
+  (2, 'Evening', 'Hare Krishna Kirtan', 'https://www.youtube.com/watch?v=jNQXAC9IVRw');
+
+INSERT OR IGNORE INTO videos (id, category, title, youtube_url, is_playlist) VALUES
+  (1, 'Lectures',  'Introduction to the Gita', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 0),
+  (2, 'Festivals', 'Janmashtami Celebration',  'https://www.youtube.com/watch?v=jNQXAC9IVRw', 0);

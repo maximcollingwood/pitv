@@ -19,6 +19,31 @@ export interface Article extends ArticleSummary {
   created_at: string;
 }
 
+export interface Kirtan {
+  id: number;
+  category: string;
+  title: string;
+  youtube_url: string;
+}
+
+export interface Video {
+  id: number;
+  category: string;
+  title: string;
+  youtube_url: string;
+  is_playlist: number;
+}
+
+export type MediaType = "kirtans" | "videos";
+
+export interface MediaItem {
+  id: number;
+  category: string;
+  title: string;
+  youtube_url: string;
+  is_playlist?: number;
+}
+
 export interface Info {
   hostname: string;
   remoteUrl: string;
@@ -73,6 +98,10 @@ export const api = {
   articles: () => fetch("/api/articles").then((r) => parse<ArticleSummary[]>(r)),
   article: (id: number | string) =>
     fetch(`/api/articles/${id}`).then((r) => parse<Article>(r)),
+  kirtans: () => fetch("/api/kirtans").then((r) => parse<Kirtan[]>(r)),
+  videos: () => fetch("/api/videos").then((r) => parse<Video[]>(r)),
+  media: (type: MediaType) =>
+    fetch(`/api/${type}`).then((r) => parse<MediaItem[]>(r)),
 
   login: (pin: string) =>
     fetch("/api/admin/login", {
@@ -81,17 +110,12 @@ export const api = {
       body: JSON.stringify({ pin }),
     }).then((r) => parse<{ token: string }>(r)),
 
-  adminArticles: () => authFetch<Article[]>("/api/admin/articles"),
-  createArticle: (data: { title: string; body: string }) =>
-    authFetch<Article>("/api/admin/articles", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  updateArticle: (id: number, data: { title: string; body: string }) =>
-    authFetch<Article>(`/api/admin/articles/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
-  deleteArticle: (id: number) =>
-    authFetch<null>(`/api/admin/articles/${id}`, { method: "DELETE" }),
+  // Generic admin CRUD (path is one of the /api/admin/* resource roots).
+  adminList: <T>(path: string) => authFetch<T[]>(path),
+  adminCreate: <T>(path: string, data: Record<string, unknown>) =>
+    authFetch<T>(path, { method: "POST", body: JSON.stringify(data) }),
+  adminUpdate: <T>(path: string, id: number, data: Record<string, unknown>) =>
+    authFetch<T>(`${path}/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  adminDelete: (path: string, id: number) =>
+    authFetch<null>(`${path}/${id}`, { method: "DELETE" }),
 };

@@ -16,3 +16,18 @@ CREATE TABLE IF NOT EXISTS articles (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS kirtans (
+  id          INTEGER PRIMARY KEY,
+  category    TEXT NOT NULL DEFAULT 'General',
+  title       TEXT NOT NULL,
+  youtube_url TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS videos (
+  id          INTEGER PRIMARY KEY,
+  category    TEXT NOT NULL DEFAULT 'General',
+  title       TEXT NOT NULL,
+  youtube_url TEXT NOT NULL DEFAULT '',
+  is_playlist INTEGER NOT NULL DEFAULT 0
+);

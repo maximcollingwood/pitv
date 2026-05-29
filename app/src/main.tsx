@@ -9,8 +9,8 @@ import { Home } from "./pages/Home";
 import { Articles } from "./pages/Articles";
 import { ArticleDetail } from "./pages/ArticleDetail";
 import { Catalog } from "./pages/Catalog";
-import { Kirtans } from "./pages/Kirtans";
-import { Videos } from "./pages/Videos";
+import { MediaCategories, MediaItems } from "./pages/Media";
+import { Player } from "./pages/Player";
 import { Remote } from "./pages/Remote";
 import { Admin } from "./pages/Admin";
 
@@ -27,8 +27,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/articles" element={<Articles />} />
           <Route path="/articles/:id" element={<ArticleDetail />} />
           <Route path="/catalog" element={<Catalog />} />
-          <Route path="/kirtans" element={<Kirtans />} />
-          <Route path="/videos" element={<Videos />} />
+          <Route path="/kirtans" element={<MediaCategories type="kirtans" />} />
+          <Route path="/kirtans/:category" element={<MediaItems type="kirtans" />} />
+          <Route path="/videos" element={<MediaCategories type="videos" />} />
+          <Route path="/videos/:category" element={<MediaItems type="videos" />} />
+          <Route path="/watch/:type/:id" element={<Player />} />
         </Route>
         {/* Phone (touch-driven) */}
         <Route path="/remote" element={<Remote />} />

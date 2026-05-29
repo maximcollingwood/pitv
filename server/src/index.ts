@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
@@ -94,6 +94,14 @@ app.get<{ Params: { id: string } }>("/api/articles/:id", async (req, reply) => {
   return article;
 });
 
+app.get("/api/kirtans", async () =>
+  db.prepare("SELECT * FROM kirtans ORDER BY category, title").all(),
+);
+
+app.get("/api/videos", async () =>
+  db.prepare("SELECT * FROM videos ORDER BY category, title").all(),
+);
+
 // ── Login ───────────────────────────────────────────────────────────────────
 app.post<{ Body: { pin?: string } }>("/api/admin/login", async (req, reply) => {
   const pin = String(req.body?.pin ?? "");
@@ -104,6 +112,62 @@ app.post<{ Body: { pin?: string } }>("/api/admin/login", async (req, reply) => {
   return { token: issueToken() };
 });
 
+// ── Generic CRUD for a table. `table`/`columns` come from our own config
+//    (never user input), values are always bound, so dynamic SQL is safe. ──────
+interface CrudConfig {
+  path: string;
+  table: string;
+  columns: string[];
+  orderBy?: string;
+}
+
+function registerCrud(scope: FastifyInstance, cfg: CrudConfig) {
+  const { path, table, columns, orderBy = "id" } = cfg;
+  const pickCols = (body: Record<string, unknown>) =>
+    columns.filter((c) => body[c] !== undefined);
+
+  scope.get(path, async () =>
+    db.prepare(`SELECT * FROM ${table} ORDER BY ${orderBy}`).all(),
+  );
+
+  scope.post<{ Body: Record<string, unknown> }>(path, async (req, reply) => {
+    const body = req.body ?? {};
+    const cols = pickCols(body);
+    if (cols.length === 0) return reply.code(400).send({ error: "no fields" });
+    const values = cols.map((c) => body[c] as never);
+    const info = db
+      .prepare(
+        `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+      )
+      .run(...values);
+    return reply
+      .code(201)
+      .send(db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(info.lastInsertRowid));
+  });
+
+  scope.put<{ Params: { id: string }; Body: Record<string, unknown> }>(
+    `${path}/:id`,
+    async (req, reply) => {
+      const existing = db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(req.params.id);
+      if (!existing) return reply.code(404).send({ error: "not found" });
+      const body = req.body ?? {};
+      const cols = pickCols(body);
+      if (cols.length > 0) {
+        const values = cols.map((c) => body[c] as never);
+        db.prepare(
+          `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(", ")} WHERE id = ?`,
+        ).run(...values, req.params.id);
+      }
+      return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
+    },
+  );
+
+  scope.delete<{ Params: { id: string } }>(`${path}/:id`, async (req, reply) => {
+    db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(req.params.id);
+    return reply.code(204).send();
+  });
+}
+
 // ── Admin endpoints (the phone CMS), token-gated ────────────────────────────
 app.register(async (admin) => {
   admin.addHook("preHandler", async (req, reply) => {
@@ -112,47 +176,30 @@ app.register(async (admin) => {
     if (!tokenValid(token)) return reply.code(401).send({ error: "unauthorized" });
   });
 
-  admin.get("/api/admin/articles", async () =>
-    db.prepare("SELECT * FROM articles ORDER BY title").all(),
-  );
-
-  admin.post<{ Body: { title?: string; body?: string } }>(
-    "/api/admin/articles",
-    async (req, reply) => {
-      const title = req.body?.title?.trim();
-      if (!title) return reply.code(400).send({ error: "title required" });
-      const info = db
-        .prepare("INSERT INTO articles (title, body) VALUES (?, ?)")
-        .run(title, req.body?.body ?? "");
-      return reply
-        .code(201)
-        .send(db.prepare("SELECT * FROM articles WHERE id = ?").get(info.lastInsertRowid));
-    },
-  );
-
-  admin.put<{ Params: { id: string }; Body: { title?: string; body?: string } }>(
-    "/api/admin/articles/:id",
-    async (req, reply) => {
-      const existing = db.prepare("SELECT id FROM articles WHERE id = ?").get(req.params.id);
-      if (!existing) return reply.code(404).send({ error: "not found" });
-      db.prepare(
-        `UPDATE articles
-            SET title = COALESCE(?, title),
-                body = COALESCE(?, body),
-                updated_at = datetime('now')
-          WHERE id = ?`,
-      ).run(req.body?.title ?? null, req.body?.body ?? null, req.params.id);
-      return db.prepare("SELECT * FROM articles WHERE id = ?").get(req.params.id);
-    },
-  );
-
-  admin.delete<{ Params: { id: string } }>(
-    "/api/admin/articles/:id",
-    async (req, reply) => {
-      db.prepare("DELETE FROM articles WHERE id = ?").run(req.params.id);
-      return reply.code(204).send();
-    },
-  );
+  registerCrud(admin, {
+    path: "/api/admin/articles",
+    table: "articles",
+    columns: ["title", "body"],
+    orderBy: "title",
+  });
+  registerCrud(admin, {
+    path: "/api/admin/kirtans",
+    table: "kirtans",
+    columns: ["category", "title", "youtube_url"],
+    orderBy: "category, title",
+  });
+  registerCrud(admin, {
+    path: "/api/admin/videos",
+    table: "videos",
+    columns: ["category", "title", "youtube_url", "is_playlist"],
+    orderBy: "category, title",
+  });
+  registerCrud(admin, {
+    path: "/api/admin/books",
+    table: "books",
+    columns: ["title", "author", "year", "category", "description"],
+    orderBy: "title",
+  });
 });
 
 app.listen({ port, host: "0.0.0.0" }).catch((err) => {

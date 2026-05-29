@@ -128,7 +128,9 @@ To point the kiosk at a remote app instead of this local stack, set
 ### Phone as remote, and the content editor
 
 The TV shows a home screen that navigates to **Articles**, **Kirtans**,
-**Videos**, and **Catalog** (Kirtans/Videos are placeholders for now).
+**Videos**, and **Catalog**. Kirtans and Videos browse by category and play via
+an embedded YouTube player; Articles open a reader; Catalog lists books. All
+four are edited from the phone (the editor's menu has a section per resource).
 
 - A **persistent QR badge** sits in the corner of every TV screen. Scanning it
   opens an **open remote** (`http://<hostname>.local/remote`) — a touch D-pad
