@@ -8,7 +8,7 @@ import { useRemoteBack } from "../lib/useRemoteBack";
 // column-count/font-size pair that gives the biggest font. (Targets Chromium's
 // multi-column overflow behavior, which is what the kiosk runs.)
 function fitLyrics(el: HTMLElement) {
-  const MAX_COLUMNS = 6;
+  const MAX_COLUMNS = 2;
   const MIN_FONT = 14;
   const MAX_FONT = 240;
   const fits = () => el.scrollWidth <= el.clientWidth + 1;
