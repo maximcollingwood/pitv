@@ -1,31 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, type Article } from "../lib/api";
+import { api, type Item } from "../lib/api";
 import { useRemoteBack } from "../lib/useRemoteBack";
 
-export function ArticleDetail() {
+export function ArticleReader() {
   useRemoteBack();
-  const { id } = useParams();
-  const [article, setArticle] = useState<Article | null>(null);
+  const { id = "", itemId = "" } = useParams();
+  const [article, setArticle] = useState<Item | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!id) return;
     api
-      .article(id)
-      .then(setArticle)
+      .sectionItems(id)
+      .then((items) => {
+        const found = items.find((it) => String(it.id) === itemId);
+        if (found) setArticle(found);
+        else setError("Could not load this article.");
+      })
       .catch(() => setError("Could not load this article."));
-  }, [id]);
+  }, [id, itemId]);
 
-  // No focusable elements here, so up/down scroll the body — from both the
-  // keyboard (arrow keys) and the phone remote (pitv:remote-dir events).
+  // Up/down scroll the body, from keyboard and the phone remote.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const scroll = (dir: "up" | "down") =>
       el.scrollBy({ top: dir === "down" ? 120 : -120, behavior: "smooth" });
-
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowDown") { e.preventDefault(); scroll("down"); }
       else if (e.key === "ArrowUp") { e.preventDefault(); scroll("up"); }
@@ -35,7 +36,6 @@ export function ArticleDetail() {
       if (dir === "down") scroll("down");
       else if (dir === "up") scroll("up");
     };
-
     window.addEventListener("keydown", onKey);
     window.addEventListener("pitv:remote", onRemote);
     return () => {
@@ -50,8 +50,8 @@ export function ArticleDetail() {
   return (
     <div className="page page--reader">
       <article className="reader" ref={scrollRef}>
-        <h1 className="reader__title">{article.title}</h1>
-        <div className="reader__body">{article.body}</div>
+        <h1 className="reader__title">{String(article.title)}</h1>
+        <div className="reader__body">{String(article.body ?? "")}</div>
       </article>
       <p className="reader__hint">Scroll up or down · Back to return</p>
     </div>

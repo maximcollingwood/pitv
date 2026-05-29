@@ -29,6 +29,18 @@
     group: "{{ backend_user }}"
     mode: "0755"
 
+# One-time reset when the schema version is bumped (PRAGMA user_version). This
+# is how the breaking "sections" model rolls out without wiping on every deploy.
+- name: Read current DB schema version
+  ansible.builtin.command: "sqlite3 '{{ db_path }}' 'PRAGMA user_version;'"
+  register: db_user_version
+  changed_when: false
+
+- name: Reset app tables when schema is outdated
+  ansible.builtin.shell:
+    cmd: "sqlite3 '{{ db_path }}' < '{{ playbook_dir }}/../db/reset.sql'"
+  when: (db_user_version.stdout | trim | int) < db_schema_version
+
 # schema.sql is idempotent (CREATE TABLE IF NOT EXISTS); seed.sql is idempotent
 # (INSERT OR IGNORE), so applying on every run is safe.
 - name: Apply schema
@@ -39,6 +51,10 @@
 - name: Apply seed data
   ansible.builtin.shell:
     cmd: "sqlite3 '{{ db_path }}' < '{{ playbook_dir }}/../db/seed.sql'"
+  changed_when: false
+
+- name: Record schema version
+  ansible.builtin.command: "sqlite3 '{{ db_path }}' 'PRAGMA user_version = {{ db_schema_version }};'"
   changed_when: false
 
 - name: Ensure database file is owned by the backend user

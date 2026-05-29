@@ -127,14 +127,22 @@ To point the kiosk at a remote app instead of this local stack, set
 
 ### Phone as remote, and the content editor
 
-The TV shows a home screen that navigates to **Articles**, **Kirtans**,
-**Videos**, and **Catalog**. Kirtans and Videos browse by category, then play in
-a framed YouTube player (auto-starts; remote **OK** = play/pause, **Left/Right**
-= seek ±10s, **Up/Down** = volume, via the YouTube IFrame API). Playlist links
-drill into their individual videos first (full playlists when a YouTube Data API
-key is set on the device — otherwise the keyless RSS feed, ~15 recent). Articles
-open a reader; Catalog lists books. All four are edited from the phone (the
-editor's menu has a section per resource).
+**Each installation is configured, not hardcoded.** The TV home renders a
+title/subtitle and a set of **sections** defined per device (stored in the DB,
+served by `GET /api/config`). Every section is an instance of a **preset type**:
+
+- **Articles** — list of titles → a reader.
+- **YouTube videos** — browse by category → framed player (auto-starts; remote
+  **OK** = play/pause, **Left/Right** = seek ±10s, **Up/Down** = volume, via the
+  YouTube IFrame API). Playlist links drill into their individual videos first
+  (full playlists with a YouTube Data API key on the device — else the keyless
+  RSS feed, ~15 recent).
+- **Book catalog** — cards with author, year, category, summary.
+
+You can add any number of sections of any type (e.g. two video sections,
+"Kirtans" and "Lectures"), name and reorder them, and edit the title/subtitle —
+all from the phone. So the same image can be dropped into different places and
+set up for each one's purpose.
 
 - A **persistent QR badge** sits in the corner of every TV screen. Scanning it
   opens an **open remote** (`http://<hostname>.local/remote`) — a touch D-pad

@@ -23,6 +23,7 @@ app_root: "/opt/pitv-frontend"      # React source; built into {{ app_root }}/di
 db_dir: "/var/lib/pitv"
 db_path: "{{ db_dir }}/library.db"
 backend_port: 3000
+db_schema_version: 2     # bump to force a one-time DB reset on the next deploy
 
 # Where this config lives, used by the `update-kiosk` helper (ansible-pull).
 # Set this to your GitHub repo before flashing the pi.

@@ -1,48 +1,21 @@
 // ── Types ───────────────────────────────────────────────────────────────────
-export interface Book {
+export type SectionType = "articles" | "media" | "catalog";
+
+export interface Section {
   id: number;
+  type: SectionType;
+  name: string;
+  position: number;
+}
+
+export interface Config {
   title: string;
-  author: string;
-  year: number | null;
-  category: string | null;
-  description: string | null;
+  subtitle: string;
+  sections: Section[];
 }
 
-export interface ArticleSummary {
-  id: number;
-  title: string;
-  updated_at: string;
-}
-
-export interface Article extends ArticleSummary {
-  body: string;
-  created_at: string;
-}
-
-export interface Kirtan {
-  id: number;
-  category: string;
-  title: string;
-  youtube_url: string;
-}
-
-export interface Video {
-  id: number;
-  category: string;
-  title: string;
-  youtube_url: string;
-  is_playlist: number;
-}
-
-export type MediaType = "kirtans" | "videos";
-
-export interface MediaItem {
-  id: number;
-  category: string;
-  title: string;
-  youtube_url: string;
-  is_playlist?: number;
-}
+// Content rows vary by section type; callers know the shape from the type.
+export type Item = Record<string, unknown> & { id: number };
 
 export interface Info {
   hostname: string;
@@ -76,9 +49,6 @@ function authFetch<T>(url: string, opts: RequestInit = {}): Promise<T> {
     Authorization: `Bearer ${getToken() ?? ""}`,
     ...((opts.headers as Record<string, string>) ?? {}),
   };
-  // Only declare a JSON body when we actually send one. An empty body with
-  // content-type: application/json makes Fastify reject the request (400),
-  // which is what broke DELETE.
   if (opts.body) headers["content-type"] = "application/json";
   return fetch(url, { ...opts, headers }).then((r) => parse<T>(r));
 }
@@ -86,6 +56,13 @@ function authFetch<T>(url: string, opts: RequestInit = {}): Promise<T> {
 // ── API ─────────────────────────────────────────────────────────────────────
 export const api = {
   info: () => fetch("/api/info").then((r) => parse<Info>(r)),
+  config: () => fetch("/api/config").then((r) => parse<Config>(r)),
+  sectionItems: (id: number | string) =>
+    fetch(`/api/sections/${id}/items`).then((r) => parse<Item[]>(r)),
+  playlist: (list: string) =>
+    fetch(`/api/playlist?list=${encodeURIComponent(list)}`).then((r) =>
+      parse<{ videos: { id: string; title: string }[] }>(r),
+    ),
 
   // Fire-and-forget remote-control press (open, no auth).
   press: (action: RemoteAction) =>
@@ -95,19 +72,6 @@ export const api = {
       body: JSON.stringify({ action }),
     }).catch(() => {}),
 
-  books: () => fetch("/api/books").then((r) => parse<Book[]>(r)),
-  articles: () => fetch("/api/articles").then((r) => parse<ArticleSummary[]>(r)),
-  article: (id: number | string) =>
-    fetch(`/api/articles/${id}`).then((r) => parse<Article>(r)),
-  kirtans: () => fetch("/api/kirtans").then((r) => parse<Kirtan[]>(r)),
-  videos: () => fetch("/api/videos").then((r) => parse<Video[]>(r)),
-  media: (type: MediaType) =>
-    fetch(`/api/${type}`).then((r) => parse<MediaItem[]>(r)),
-  playlist: (list: string) =>
-    fetch(`/api/playlist?list=${encodeURIComponent(list)}`).then((r) =>
-      parse<{ videos: { id: string; title: string }[] }>(r),
-    ),
-
   login: (pin: string) =>
     fetch("/api/admin/login", {
       method: "POST",
@@ -115,12 +79,36 @@ export const api = {
       body: JSON.stringify({ pin }),
     }).then((r) => parse<{ token: string }>(r)),
 
-  // Generic admin CRUD (path is one of the /api/admin/* resource roots).
-  adminList: <T>(path: string) => authFetch<T[]>(path),
-  adminCreate: <T>(path: string, data: Record<string, unknown>) =>
-    authFetch<T>(path, { method: "POST", body: JSON.stringify(data) }),
-  adminUpdate: <T>(path: string, id: number, data: Record<string, unknown>) =>
-    authFetch<T>(`${path}/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  adminDelete: (path: string, id: number) =>
-    authFetch<null>(`${path}/${id}`, { method: "DELETE" }),
+  // ── Admin: settings ─────────────────────────────────────────────────────
+  getSettings: () => authFetch<Record<string, string>>("/api/admin/settings"),
+  saveSettings: (data: Record<string, string>) =>
+    authFetch<Record<string, string>>("/api/admin/settings", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  // ── Admin: sections ─────────────────────────────────────────────────────
+  adminSections: () => authFetch<Section[]>("/api/admin/sections"),
+  createSection: (data: { type: SectionType; name: string }) =>
+    authFetch<Section>("/api/admin/sections", { method: "POST", body: JSON.stringify(data) }),
+  updateSection: (id: number, data: { name?: string; position?: number }) =>
+    authFetch<Section>(`/api/admin/sections/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteSection: (id: number) =>
+    authFetch<null>(`/api/admin/sections/${id}`, { method: "DELETE" }),
+
+  // ── Admin: section content ──────────────────────────────────────────────
+  itemsList: (sectionId: number) =>
+    authFetch<Item[]>(`/api/admin/sections/${sectionId}/items`),
+  createItem: (sectionId: number, data: Record<string, unknown>) =>
+    authFetch<Item>(`/api/admin/sections/${sectionId}/items`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateItem: (sectionId: number, itemId: number, data: Record<string, unknown>) =>
+    authFetch<Item>(`/api/admin/sections/${sectionId}/items/${itemId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  deleteItem: (sectionId: number, itemId: number) =>
+    authFetch<null>(`/api/admin/sections/${sectionId}/items/${itemId}`, { method: "DELETE" }),
 };

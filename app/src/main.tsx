@@ -6,10 +6,10 @@ import "./styles.css";
 
 import { TvLayout } from "./components/TvLayout";
 import { Home } from "./pages/Home";
-import { Articles } from "./pages/Articles";
-import { ArticleDetail } from "./pages/ArticleDetail";
-import { Catalog } from "./pages/Catalog";
-import { MediaCategories, MediaItems, PlaylistBrowse } from "./pages/Media";
+import { Section } from "./pages/Section";
+import { SectionItems } from "./pages/SectionItems";
+import { ArticleReader } from "./pages/ArticleReader";
+import { PlaylistBrowse } from "./pages/PlaylistBrowse";
 import { Player } from "./pages/Player";
 import { Remote } from "./pages/Remote";
 import { Admin } from "./pages/Admin";
@@ -24,15 +24,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         {/* TV (remote-driven): shared shell adds the SSE listener + QR badge */}
         <Route element={<TvLayout />}>
           <Route path="/" element={<Home />} />
-          <Route path="/articles" element={<Articles />} />
-          <Route path="/articles/:id" element={<ArticleDetail />} />
-          <Route path="/catalog" element={<Catalog />} />
-          <Route path="/kirtans" element={<MediaCategories type="kirtans" />} />
-          <Route path="/kirtans/:category" element={<MediaItems type="kirtans" />} />
-          <Route path="/videos" element={<MediaCategories type="videos" />} />
-          <Route path="/videos/:category" element={<MediaItems type="videos" />} />
-          <Route path="/playlist/:type/:id" element={<PlaylistBrowse />} />
-          <Route path="/watch/:type/:id" element={<Player />} />
+          <Route path="/s/:id" element={<Section />} />
+          <Route path="/s/:id/category/:category" element={<SectionItems />} />
+          <Route path="/s/:id/article/:itemId" element={<ArticleReader />} />
+          <Route path="/playlist/:listId" element={<PlaylistBrowse />} />
           <Route path="/play/:videoId" element={<Player />} />
         </Route>
         {/* Phone (touch-driven) */}

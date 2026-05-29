@@ -360,7 +360,8 @@ body {
 }
 
 input,
-textarea {
+textarea,
+select {
   font: inherit;
   width: 100%;
   padding: 0.7rem 0.9rem;
@@ -371,7 +372,8 @@ textarea {
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   outline: none;
   border-color: var(--gold);
   box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.25);
@@ -610,4 +612,16 @@ body.lock {
 
 .admin__check input {
   width: auto;
+}
+
+.admin__subhead {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 1.8rem 0 0.6rem;
+}
+
+.admin__item--tappable {
+  cursor: pointer;
 }

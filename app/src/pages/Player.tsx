@@ -1,20 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, type MediaType } from "../lib/api";
 import { useRemoteBack } from "../lib/useRemoteBack";
 import { setCurrentEnter } from "../lib/remoteFocus";
-import { parseYouTube, loadYouTubeApi, type ParsedYouTube } from "../lib/youtube";
+import { loadYouTubeApi } from "../lib/youtube";
 
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function Player() {
   useRemoteBack();
-  // /play/:videoId plays a specific video; /watch/:type/:id resolves a media item.
-  const { type, id, videoId } = useParams();
-  const [target, setTarget] = useState<ParsedYouTube | null>(null);
-  const [title, setTitle] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const { videoId } = useParams();
   const [flash, setFlash] = useState<string | null>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -25,47 +20,20 @@ export function Player() {
     setCurrentEnter(null);
   }, []);
 
-  // Resolve what to play.
-  useEffect(() => {
-    if (videoId) {
-      setTarget({ kind: "video", id: videoId });
-      return;
-    }
-    if (!type || !id) return;
-    api
-      .media(type as MediaType)
-      .then((all) => {
-        const found = all.find((i) => String(i.id) === id);
-        if (!found) return setError("Not found.");
-        setTitle(found.title);
-        const parsed = parseYouTube(found.youtube_url);
-        if (parsed.kind === "unknown") return setError("No valid video link.");
-        setTarget(parsed);
-      })
-      .catch(() => setError("Could not load."));
-  }, [type, id, videoId]);
-
   // Build the IFrame player and autostart.
   useEffect(() => {
-    if (!target || !mountRef.current) return;
+    if (!videoId || !mountRef.current) return;
     let cancelled = false;
     loadYouTubeApi().then(() => {
       if (cancelled || !mountRef.current) return;
       const YT = (window as any).YT;
-      const playerVars: any = { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1 };
-      const config: any = {
+      playerRef.current = new YT.Player(mountRef.current, {
         width: "100%",
         height: "100%",
-        playerVars,
+        videoId,
+        playerVars: { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1 },
         events: { onReady: (e: any) => e.target.playVideo() },
-      };
-      if (target.kind === "playlist") {
-        playerVars.listType = "playlist";
-        playerVars.list = target.id;
-      } else {
-        config.videoId = target.id;
-      }
-      playerRef.current = new YT.Player(mountRef.current, config);
+      });
     });
     return () => {
       cancelled = true;
@@ -76,7 +44,7 @@ export function Player() {
       }
       playerRef.current = null;
     };
-  }, [target]);
+  }, [videoId]);
 
   // Remote controls: OK play/pause, left/right seek, up/down volume.
   useEffect(() => {
@@ -129,11 +97,8 @@ export function Player() {
     };
   }, []);
 
-  if (error) return <div className="page"><p className="error">{error}</p></div>;
-
   return (
     <div className="player">
-      {title && <h1 className="player__title">{title}</h1>}
       <div className="player__stage">
         <div className="player__frame" ref={mountRef} />
       </div>
