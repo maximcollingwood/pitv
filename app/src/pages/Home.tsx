@@ -6,15 +6,14 @@ import { Tile } from "../components/Tile";
 
 interface NavItem {
   label: string;
-  icon: string;
   to: string;
 }
 
 const ITEMS: NavItem[] = [
-  { label: "Articles", icon: "✍", to: "/articles" },
-  { label: "Kirtans", icon: "♪", to: "/kirtans" },
-  { label: "Videos", icon: "►", to: "/videos" },
-  { label: "Catalog", icon: "❦", to: "/catalog" },
+  { label: "Articles", to: "/articles" },
+  { label: "Kirtans", to: "/kirtans" },
+  { label: "Videos", to: "/videos" },
+  { label: "Catalog", to: "/catalog" },
 ];
 
 export function Home() {
@@ -39,7 +38,6 @@ export function Home() {
             className="tile--nav"
             onEnter={() => navigate(item.to)}
           >
-            <span className="tile__icon">{item.icon}</span>
             <span className="tile__label">{item.label}</span>
           </Tile>
         ))}

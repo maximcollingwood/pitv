@@ -53,7 +53,7 @@ export function ArticleDetail() {
         <h1 className="reader__title">{article.title}</h1>
         <div className="reader__body">{article.body}</div>
       </article>
-      <p className="reader__hint">Use ▲ ▼ to scroll · Back to return</p>
+      <p className="reader__hint">Scroll up or down · Back to return</p>
     </div>
   );
 }

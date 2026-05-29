@@ -142,22 +142,14 @@ body {
 
 .tile--nav {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
   aspect-ratio: 1 / 0.9;
   text-align: center;
 }
 
-.tile__icon {
-  font-size: clamp(2.5rem, 6vw, 4rem);
-  color: var(--red);
-  line-height: 1;
-}
-
 .tile__label {
-  font-size: clamp(1.1rem, 2.4vw, 1.7rem);
+  font-size: clamp(1.4rem, 3vw, 2.2rem);
   font-weight: 600;
 }
 
@@ -208,28 +200,28 @@ body {
 /* ── Article reader ────────────────────────────────────────────────────────── */
 .reader {
   width: 100%;
-  max-width: 820px;
-  max-height: 80vh;
+  max-width: 1200px;
+  max-height: 88vh;
   overflow-y: auto;
   text-align: left;
-  padding: clamp(1.5rem, 4vw, 3rem);
+  padding: clamp(2rem, 5vw, 4rem);
   background: var(--card);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
 
 .reader__title {
-  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-size: clamp(2.2rem, 5vw, 3.6rem);
   font-weight: 700;
-  margin: 0 0 1.5rem;
+  margin: 0 0 1.8rem;
   border-bottom: 3px solid var(--gold);
-  padding-bottom: 1rem;
+  padding-bottom: 1.2rem;
 }
 
 .reader__body {
   white-space: pre-wrap;
-  font-size: clamp(1.1rem, 2.2vw, 1.5rem);
-  line-height: 1.7;
+  font-size: clamp(1.5rem, 3vw, 2.3rem);
+  line-height: 1.8;
 }
 
 .reader__hint {
@@ -443,17 +435,30 @@ textarea {
   font-weight: 600;
 }
 
-/* ── Phone remote (touch D-pad) ────────────────────────────────────────────── */
+/* ── Phone remote (touch D-pad) — locked, app-like, D-pad toward bottom ─────── */
+html.lock,
+body.lock {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  position: fixed;
+  width: 100%;
+}
+
 .remote {
   max-width: 420px;
   margin: 0 auto;
-  min-height: 100vh;
-  padding: 1.5rem;
+  height: 100dvh;
+  padding: 1.5rem 1.5rem 2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.2rem;
   text-align: center;
+  overflow: hidden;
+}
+
+.remote__head {
+  padding-top: 1rem;
 }
 
 .remote__brand {
@@ -476,7 +481,7 @@ textarea {
   gap: 0.8rem;
   width: 100%;
   max-width: 320px;
-  margin: 1rem 0;
+  margin: auto auto 1.2rem; /* auto top → pushed toward the bottom */
 }
 
 .dpad__btn {
@@ -521,9 +526,9 @@ textarea {
 }
 
 .remote__edit {
-  margin-top: auto;
+  margin-top: 1rem;
   color: var(--muted);
   font-weight: 600;
   text-decoration: none;
-  padding: 1rem;
+  padding: 0.5rem;
 }
