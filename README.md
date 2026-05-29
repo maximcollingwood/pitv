@@ -125,6 +125,25 @@ server on :3000.
 To point the kiosk at a remote app instead of this local stack, set
 `kiosk_serve_local_app: false` and change `kiosk_url`.
 
+### Content & the phone editor
+
+The TV shows a home screen that navigates to **Articles**, **Kirtans**,
+**Videos**, and **Catalog** (Kirtans/Videos are placeholders for now). Content
+is edited from a phone, not the TV:
+
+- The TV's **Manage content** screen shows a QR code to the editor
+  (`http://<hostname>.local/admin`).
+- The editor is gated by a **shared 4-digit PIN**. The PIN lives only on the
+  device in `/etc/kiosk/admin.env` (never in git — the repo is public). It
+  defaults to `0000`; change it and restart the API:
+  ```sh
+  sudo sed -i 's/^ADMIN_PIN=.*/ADMIN_PIN=1234/' /etc/kiosk/admin.env
+  sudo systemctl restart pitv-backend
+  ```
+- Public read endpoints (`/api/articles`, `/api/books`) are open; writes
+  (`/api/admin/*`) require a token obtained by POSTing the PIN to
+  `/api/admin/login`.
+
 ## Customizing
 
 - **Change the displayed site:** `kiosk_url` in `ansible/group_vars/all.yml`.

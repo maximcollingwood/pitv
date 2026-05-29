@@ -9,6 +9,11 @@
 *.vault
 secrets.yml
 
+# IDE
+.vs/
+.idea/
+.vscode/
+
 # Node / app build artifacts
 node_modules/
 dist/

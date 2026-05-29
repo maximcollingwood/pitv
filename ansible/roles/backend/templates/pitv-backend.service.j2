@@ -9,6 +9,7 @@ Group={{ backend_user }}
 WorkingDirectory={{ backend_root }}
 Environment=PORT={{ backend_port }}
 Environment=DB_PATH={{ db_path }}
+EnvironmentFile=-/etc/kiosk/admin.env
 ExecStart=/usr/bin/node {{ backend_root }}/dist/index.js
 Restart=always
 RestartSec=2

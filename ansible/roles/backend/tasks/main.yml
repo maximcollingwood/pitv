@@ -7,6 +7,27 @@
     group: "{{ backend_user }}"
     mode: "0755"
 
+- name: Ensure /etc/kiosk exists
+  ansible.builtin.file:
+    path: /etc/kiosk
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# The admin PIN lives only on the device (never in git, since the repo is
+# public). Created once with a default; change it in /etc/kiosk/admin.env and
+# `sudo systemctl restart pitv-backend`. force:false keeps your value on re-runs.
+- name: Create admin PIN env file (if absent)
+  ansible.builtin.copy:
+    dest: /etc/kiosk/admin.env
+    content: "ADMIN_PIN=0000\n"
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  notify: Restart backend
+
 - name: Deploy backend source
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../server/"

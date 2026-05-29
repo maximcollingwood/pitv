@@ -7,3 +7,13 @@ INSERT OR IGNORE INTO books (id, title, author, year, category, description) VAL
   (4, 'Tao Te Ching',                 'Laozi',                -400, 'Philosophy',  'Foundational text of Taoism on living in harmony with the Tao.'),
   (5, 'The Imitation of Christ',      'Thomas a Kempis',      1418, 'Devotional',  'A medieval manual of spiritual devotion and inner life.'),
   (6, 'The Prophet',                  'Kahlil Gibran',        1923, 'Poetry',      'Twenty-six prose poetry essays on love, work, and the human condition.');
+
+INSERT OR IGNORE INTO articles (id, title, body) VALUES
+  (1, 'How to Control Lust',
+   'Lust is not conquered by suppression but by redirection. When the mind is given something higher to rest upon, the lower pull loses its grip.
+
+Begin with small, consistent practice: rise at the same hour, sit quietly, and turn the attention inward before the day pulls it outward. Over time the restless energy settles.'),
+  (2, 'On Patience',
+   'Patience is not passive waiting. It is the active, steady trust that effort sincerely offered will bear fruit in its own season.
+
+The farmer does not pull the seedling to make it grow. He waters, weeds, and waits. So too with the cultivation of character.');

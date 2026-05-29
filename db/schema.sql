@@ -8,3 +8,11 @@ CREATE TABLE IF NOT EXISTS books (
   category    TEXT,
   description TEXT
 );
+
+CREATE TABLE IF NOT EXISTS articles (
+  id         INTEGER PRIMARY KEY,
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
