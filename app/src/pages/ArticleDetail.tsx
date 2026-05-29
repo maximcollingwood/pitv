@@ -18,21 +18,30 @@ export function ArticleDetail() {
       .catch(() => setError("Could not load this article."));
   }, [id]);
 
-  // No focusable elements here, so use the D-pad up/down to scroll the body.
+  // No focusable elements here, so up/down scroll the body — from both the
+  // keyboard (arrow keys) and the phone remote (pitv:remote-dir events).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        el.scrollBy({ top: 120, behavior: "smooth" });
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        el.scrollBy({ top: -120, behavior: "smooth" });
-      }
+    const scroll = (dir: "up" | "down") =>
+      el.scrollBy({ top: dir === "down" ? 120 : -120, behavior: "smooth" });
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown") { e.preventDefault(); scroll("down"); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); scroll("up"); }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    const onRemote = (e: Event) => {
+      const dir = (e as CustomEvent<string>).detail;
+      if (dir === "down") scroll("down");
+      else if (dir === "up") scroll("up");
+    };
+
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pitv:remote-dir", onRemote);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pitv:remote-dir", onRemote);
+    };
   }, [article]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;

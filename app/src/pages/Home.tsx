@@ -44,16 +44,6 @@ export function Home() {
           </Tile>
         ))}
       </Grid>
-
-      <Grid className="grid grid--footer">
-        <Tile
-          focusKey="manage"
-          className="tile--manage"
-          onEnter={() => navigate("/manage")}
-        >
-          Manage content
-        </Tile>
-      </Grid>
     </div>
   );
 }

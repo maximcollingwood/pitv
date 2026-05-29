@@ -421,6 +421,109 @@ textarea {
   border-color: rgba(179, 38, 30, 0.4);
 }
 
-.manage-link {
-  display: none;
+/* ── Persistent "scan to control" QR badge (TV corner) ─────────────────────── */
+.remote-badge {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  background: #fff;
+  padding: 0.8rem;
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: none;
+}
+
+.remote-badge__label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* ── Phone remote (touch D-pad) ────────────────────────────────────────────── */
+.remote {
+  max-width: 420px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2rem;
+  text-align: center;
+}
+
+.remote__brand {
+  background: linear-gradient(120deg, var(--red), var(--gold));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 1.6rem;
+  margin: 0.5rem 0 0;
+}
+
+.remote__hint {
+  color: var(--muted);
+  margin: 0;
+}
+
+.dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+  width: 100%;
+  max-width: 320px;
+  margin: 1rem 0;
+}
+
+.dpad__btn {
+  font: inherit;
+  font-size: 1.6rem;
+  border: 1px solid var(--hairline);
+  background: #fff;
+  color: var(--fg);
+  border-radius: 18px;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow);
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.dpad__btn:active {
+  transform: scale(0.94);
+  border-color: var(--gold);
+}
+
+.dpad__up { grid-column: 2; grid-row: 1; }
+.dpad__left { grid-column: 1; grid-row: 2; }
+.dpad__ok { grid-column: 2; grid-row: 2; }
+.dpad__right { grid-column: 3; grid-row: 2; }
+.dpad__down { grid-column: 2; grid-row: 3; }
+
+.dpad__ok {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.remote__back {
+  width: 100%;
+  max-width: 320px;
+}
+
+.remote__edit {
+  margin-top: auto;
+  color: var(--muted);
+  font-weight: 600;
+  text-decoration: none;
+  padding: 1rem;
 }

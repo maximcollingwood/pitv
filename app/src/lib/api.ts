@@ -21,8 +21,11 @@ export interface Article extends ArticleSummary {
 
 export interface Info {
   hostname: string;
+  remoteUrl: string;
   adminUrl: string;
 }
+
+export type RemoteAction = "up" | "down" | "left" | "right" | "select" | "back";
 
 export class ApiError extends Error {
   status: number;
@@ -57,6 +60,15 @@ function authFetch<T>(url: string, opts: RequestInit = {}): Promise<T> {
 // ── API ─────────────────────────────────────────────────────────────────────
 export const api = {
   info: () => fetch("/api/info").then((r) => parse<Info>(r)),
+
+  // Fire-and-forget remote-control press (open, no auth).
+  press: (action: RemoteAction) =>
+    fetch("/api/remote/press", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    }).catch(() => {}),
+
   books: () => fetch("/api/books").then((r) => parse<Book[]>(r)),
   articles: () => fetch("/api/articles").then((r) => parse<ArticleSummary[]>(r)),
   article: (id: number | string) =>

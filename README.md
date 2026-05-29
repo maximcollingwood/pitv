@@ -125,14 +125,18 @@ server on :3000.
 To point the kiosk at a remote app instead of this local stack, set
 `kiosk_serve_local_app: false` and change `kiosk_url`.
 
-### Content & the phone editor
+### Phone as remote, and the content editor
 
 The TV shows a home screen that navigates to **Articles**, **Kirtans**,
-**Videos**, and **Catalog** (Kirtans/Videos are placeholders for now). Content
-is edited from a phone, not the TV:
+**Videos**, and **Catalog** (Kirtans/Videos are placeholders for now).
 
-- The TV's **Manage content** screen shows a QR code to the editor
-  (`http://<hostname>.local/admin`).
+- A **persistent QR badge** sits in the corner of every TV screen. Scanning it
+  opens an **open remote** (`http://<hostname>.local/remote`) — a touch D-pad
+  (▲▼◀▶ + OK + Back) that drives the on-screen navigation in real time. No app
+  needed: phone presses go to the backend and are relayed to the TV over SSE
+  (`POST /api/remote/press` → `GET /api/remote/events`). This is the bootstrap
+  control path — anyone can grab it without a hardware remote.
+- The remote page has an **Edit content →** link to the editor at `/admin`.
 - The editor is gated by a **shared 4-digit PIN**. The PIN lives only on the
   device in `/etc/kiosk/admin.env` (never in git — the repo is public). It
   defaults to `0000`; change it and restart the API:

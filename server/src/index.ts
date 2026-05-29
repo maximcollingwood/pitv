@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
+import type { ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -42,8 +43,40 @@ app.get("/api/health", async () => ({ status: "ok" }));
 
 app.get("/api/info", async () => ({
   hostname: os.hostname(),
+  remoteUrl: `http://${os.hostname()}.local/remote`,
   adminUrl: `http://${os.hostname()}.local/admin`,
 }));
+
+// ── Remote control relay (open): phones POST presses, the TV listens via SSE ──
+const remoteClients = new Set<ServerResponse>();
+const REMOTE_ACTIONS = new Set(["up", "down", "left", "right", "select", "back"]);
+
+app.get("/api/remote/events", (req, reply) => {
+  reply.hijack();
+  const res = reply.raw;
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.write(": connected\n\n");
+  remoteClients.add(res);
+  const ping = setInterval(() => res.write(": ping\n\n"), 25000);
+  req.raw.on("close", () => {
+    clearInterval(ping);
+    remoteClients.delete(res);
+  });
+});
+
+app.post<{ Body: { action?: string } }>("/api/remote/press", async (req, reply) => {
+  const action = req.body?.action;
+  if (!action || !REMOTE_ACTIONS.has(action)) {
+    return reply.code(400).send({ error: "bad action" });
+  }
+  const payload = `data: ${JSON.stringify({ action })}\n\n`;
+  for (const res of remoteClients) res.write(payload);
+  return { ok: true, clients: remoteClients.size };
+});
 
 app.get("/api/books", async () =>
   db.prepare("SELECT * FROM books ORDER BY title").all(),
