@@ -52,7 +52,7 @@
       # Make the first HDMI sink the default, then max its volume.
       hdmi_sink=$(pactl list short sinks | awk '/hdmi/{print $2; exit}')
       if [ -n "$hdmi_sink" ]; then
-        pactl set-default-sink "$hdmi_sink"
+        pactl set-default-sink "$hdmi_sink" || true
         wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0 || true
       fi
 
