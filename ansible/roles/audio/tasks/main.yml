@@ -11,6 +11,7 @@
       - wireplumber        # PipeWire session manager (sink/source policy)
       - pipewire-alsa      # ALSA → PipeWire bridge for ALSA clients
       - alsa-utils         # aplay / speaker-test for diagnostics
+      - pulseaudio-utils   # pactl / pacmd — used by the setup script below
     state: present
 
 # These ship as user services; enable them for every user (the kiosk user
@@ -21,4 +22,58 @@
     - pipewire.socket
     - pipewire-pulse.socket
     - wireplumber.service
+  changed_when: false
+
+# At boot, the kiosk's PipeWire starts before HDMI EDID is detected, so the
+# HDMI card profile defaults to "off" and the analog jack is picked. This
+# script (run as a user-session oneshot) waits a few seconds, forces HDMI
+# stereo on whichever HDMI port has the cable, makes it the default sink,
+# and maxes the volume. Works on either HDMI 0 or HDMI 1 — whichever is live.
+- name: Install kiosk audio setup script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/kiosk-audio-setup.sh
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Configure HDMI as the default sink for the current user.
+      set -e
+      export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+
+      # Wait for PipeWire + HDMI detection to settle.
+      sleep 6
+
+      # Force HDMI stereo on whichever HDMI card accepts it (the connected one).
+      for card in $(pactl list short cards | awk '/hdmi/{print $2}'); do
+        pactl set-card-profile "$card" output:hdmi-stereo 2>/dev/null || true
+      done
+
+      # Make the first HDMI sink the default, then max its volume.
+      hdmi_sink=$(pactl list short sinks | awk '/hdmi/{print $2; exit}')
+      if [ -n "$hdmi_sink" ]; then
+        pactl set-default-sink "$hdmi_sink"
+        wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0 || true
+      fi
+
+- name: Install kiosk audio setup user service
+  ansible.builtin.copy:
+    dest: /etc/systemd/user/kiosk-audio-setup.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Configure HDMI audio output for the kiosk
+      After=wireplumber.service pipewire.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/kiosk-audio-setup.sh
+
+      [Install]
+      WantedBy=default.target
+
+- name: Enable kiosk audio setup user service globally
+  ansible.builtin.command: "systemctl --global enable kiosk-audio-setup.service"
   changed_when: false
