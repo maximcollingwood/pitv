@@ -102,6 +102,81 @@ app.get("/api/config", async () => {
   };
 });
 
+// ── Background audio (one global track, looped) ─────────────────────────────
+interface BgState {
+  trackId: number | null;
+  playing: boolean;
+}
+
+const settingsUpsert = db.prepare(
+  "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+);
+function readBg(key: string): string | undefined {
+  return (db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined)?.value;
+}
+
+const bgState: BgState = {
+  trackId: ((): number | null => {
+    const v = readBg("bg_track_id");
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  })(),
+  playing: readBg("bg_playing") === "1",
+};
+
+function persistBg() {
+  settingsUpsert.run("bg_track_id", bgState.trackId == null ? "" : String(bgState.trackId));
+  settingsUpsert.run("bg_playing", bgState.playing ? "1" : "0");
+}
+
+const bgClients = new Set<ServerResponse>();
+function broadcastBg() {
+  const payload = `data: ${JSON.stringify(bgState)}\n\n`;
+  for (const r of bgClients) r.write(payload);
+}
+
+app.get("/api/background/tracks", async () =>
+  db
+    .prepare("SELECT id, title, youtube_url, position FROM background_tracks ORDER BY position, id")
+    .all(),
+);
+
+app.get("/api/background/state", async () => bgState);
+
+app.post<{ Body: { trackId?: number | null; playing?: boolean } }>(
+  "/api/background/state",
+  async (req) => {
+    const body = req.body ?? {};
+    if (body.trackId !== undefined) {
+      bgState.trackId = body.trackId === null ? null : Number(body.trackId);
+    }
+    if (body.playing !== undefined) bgState.playing = Boolean(body.playing);
+    persistBg();
+    broadcastBg();
+    return bgState;
+  },
+);
+
+app.get("/api/background/events", (req, reply) => {
+  reply.hijack();
+  const res = reply.raw;
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.write(`data: ${JSON.stringify(bgState)}\n\n`); // initial state
+  bgClients.add(res);
+  const ping = setInterval(() => res.write(": ping\n\n"), 25000);
+  req.raw.on("close", () => {
+    clearInterval(ping);
+    bgClients.delete(res);
+  });
+});
+
 app.get<{ Params: { id: string } }>("/api/sections/:id/items", async (req, reply) => {
   const section = getSection(req.params.id);
   const cfg = section && SECTION_TYPES[section.type];
@@ -414,6 +489,71 @@ app.register(async (admin) => {
         req.params.itemId,
         ctx.section.id,
       );
+      return reply.code(204).send();
+    },
+  );
+
+  // ── Background audio tracks (global feature, not a section) ──────────────
+  admin.get("/api/admin/background/tracks", async () =>
+    db.prepare("SELECT * FROM background_tracks ORDER BY position, id").all(),
+  );
+
+  admin.post<{ Body: { title?: string; youtube_url?: string; position?: number } }>(
+    "/api/admin/background/tracks",
+    async (req, reply) => {
+      const title = req.body?.title?.trim();
+      if (!title) return reply.code(400).send({ error: "title required" });
+      const url = req.body?.youtube_url ?? "";
+      const pos =
+        req.body?.position ??
+        (db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM background_tracks").get() as {
+          p: number;
+        }).p;
+      const info = db
+        .prepare(
+          "INSERT INTO background_tracks (title, youtube_url, position) VALUES (?, ?, ?)",
+        )
+        .run(title, url, pos);
+      return reply
+        .code(201)
+        .send(
+          db
+            .prepare("SELECT * FROM background_tracks WHERE id = ?")
+            .get(info.lastInsertRowid),
+        );
+    },
+  );
+
+  admin.put<{
+    Params: { id: string };
+    Body: { title?: string; youtube_url?: string; position?: number };
+  }>("/api/admin/background/tracks/:id", async (req, reply) => {
+    const existing = db
+      .prepare("SELECT id FROM background_tracks WHERE id = ?")
+      .get(req.params.id);
+    if (!existing) return reply.code(404).send({ error: "not found" });
+    const { title, youtube_url, position } = req.body ?? {};
+    db.prepare(
+      `UPDATE background_tracks
+          SET title       = COALESCE(?, title),
+              youtube_url = COALESCE(?, youtube_url),
+              position    = COALESCE(?, position)
+        WHERE id = ?`,
+    ).run(title ?? null, youtube_url ?? null, position ?? null, req.params.id);
+    return db.prepare("SELECT * FROM background_tracks WHERE id = ?").get(req.params.id);
+  });
+
+  admin.delete<{ Params: { id: string } }>(
+    "/api/admin/background/tracks/:id",
+    async (req, reply) => {
+      db.prepare("DELETE FROM background_tracks WHERE id = ?").run(req.params.id);
+      // If the deleted track was selected, clear selection.
+      if (bgState.trackId != null && String(bgState.trackId) === req.params.id) {
+        bgState.trackId = null;
+        bgState.playing = false;
+        persistBg();
+        broadcastBg();
+      }
       return reply.code(204).send();
     },
   );

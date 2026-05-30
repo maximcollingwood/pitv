@@ -43,3 +43,12 @@ CREATE TABLE IF NOT EXISTS books (
   category    TEXT,
   description TEXT
 );
+
+-- Background audio (looping YouTube track). One global selection; state lives
+-- in `settings` (bg_track_id, bg_playing) so it persists across reboots.
+CREATE TABLE IF NOT EXISTS background_tracks (
+  id          INTEGER PRIMARY KEY,
+  title       TEXT NOT NULL,
+  youtube_url TEXT NOT NULL DEFAULT '',
+  position    INTEGER NOT NULL DEFAULT 0
+);

@@ -48,7 +48,13 @@ const TYPE_FIELDS: Record<SectionType, Field[]> = {
   ],
 };
 
-type View = "home" | "settings" | "sections" | "content";
+type View = "home" | "settings" | "sections" | "content" | "background";
+
+// Fields for the standalone background-audio tracks editor (not tied to a section).
+const BG_FIELDS: Field[] = [
+  { name: "title", label: "Title", type: "text" },
+  { name: "youtube_url", label: "YouTube URL", type: "text" },
+];
 
 export function Admin() {
   const [token, setTok] = useState<string | null>(getToken());
@@ -68,6 +74,11 @@ export function Admin() {
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Background-audio tracks (standalone, not tied to a section).
+  const [bgTracks, setBgTracks] = useState<Item[]>([]);
+  const [bgDraft, setBgDraft] = useState<Record<string, unknown> | null>(null);
+  const BG_PATH = "/api/admin/background/tracks";
 
   const signOut = useCallback(() => {
     clearToken();
@@ -89,6 +100,11 @@ export function Admin() {
     [handleError],
   );
 
+  const loadBg = useCallback(
+    () => api.adminList<Item>(BG_PATH).then(setBgTracks).catch(handleError),
+    [handleError],
+  );
+
   useEffect(() => {
     if (!token) return;
     loadSections();
@@ -97,6 +113,52 @@ export function Admin() {
       .then((s) => setSettings({ title: s.title ?? "", subtitle: s.subtitle ?? "" }))
       .catch(handleError);
   }, [token, loadSections, handleError]);
+
+  useEffect(() => {
+    if (view === "background") loadBg();
+  }, [view, loadBg]);
+
+  function blankBg(): Record<string, unknown> {
+    const d: Record<string, unknown> = {};
+    for (const f of BG_FIELDS) d[f.name] = "";
+    return d;
+  }
+
+  function openBgEdit(it: Item) {
+    const d: Record<string, unknown> = { id: it.id };
+    for (const f of BG_FIELDS) d[f.name] = it[f.name] ?? "";
+    setBgDraft(d);
+  }
+
+  async function saveBg(e: FormEvent) {
+    e.preventDefault();
+    if (!bgDraft) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const payload: Record<string, unknown> = {};
+      for (const f of BG_FIELDS) payload[f.name] = bgDraft[f.name] ?? "";
+      const id = bgDraft.id as number | undefined;
+      if (id) await api.adminUpdate(BG_PATH, id, payload);
+      else await api.adminCreate(BG_PATH, payload);
+      setBgDraft(null);
+      await loadBg();
+    } catch (e) {
+      handleError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeBg(id: number) {
+    if (!confirm("Delete this background track?")) return;
+    try {
+      await api.adminDelete(BG_PATH, id);
+      setBgTracks((prev) => prev.filter((x) => x.id !== id));
+    } catch (e) {
+      handleError(e);
+    }
+  }
 
   async function login(e: FormEvent) {
     e.preventDefault();
@@ -460,6 +522,70 @@ export function Admin() {
     );
   }
 
+  // ── Render: background audio track editor ────────────────────────────────────
+  if (view === "background" && bgDraft) {
+    return (
+      <div className="admin">
+        <header className="admin__bar">
+          <button className="btn btn--small" onClick={() => setBgDraft(null)}>Cancel</button>
+          <span className="admin__title">{bgDraft.id ? "Edit" : "New"} track</span>
+          <span />
+        </header>
+        <form className="admin__form" onSubmit={saveBg}>
+          {BG_FIELDS.map((f) => (
+            <label key={f.name}>
+              {f.label}
+              <input
+                type="text"
+                value={String(bgDraft[f.name] ?? "")}
+                onChange={(e) => setBgDraft({ ...bgDraft, [f.name]: e.target.value })}
+                autoFocus={f.name === "title"}
+              />
+            </label>
+          ))}
+          {error && <p className="admin__error">{error}</p>}
+          <button type="submit" className="btn btn--primary" disabled={busy}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  // ── Render: background audio track list ─────────────────────────────────────
+  if (view === "background") {
+    return (
+      <div className="admin">
+        <header className="admin__bar">
+          <button className="btn btn--small" onClick={() => setView("home")}>Back</button>
+          <span className="admin__title">Background audio</span>
+          <span />
+        </header>
+        <button
+          className="btn btn--primary admin__new"
+          onClick={() => setBgDraft(blankBg())}
+        >
+          + New track
+        </button>
+        {error && <p className="admin__error">{error}</p>}
+        <ul className="admin__list">
+          {bgTracks.map((t) => (
+            <li key={t.id} className="admin__item">
+              <span className="admin__item-title">{String(t.title)}</span>
+              <span className="admin__item-actions">
+                <button className="btn btn--small" onClick={() => openBgEdit(t)}>Edit</button>
+                <button className="btn btn--small btn--danger" onClick={() => removeBg(t.id)}>
+                  Delete
+                </button>
+              </span>
+            </li>
+          ))}
+          {bgTracks.length === 0 && <li className="muted">No tracks yet.</li>}
+        </ul>
+      </div>
+    );
+  }
+
   // ── Render: home menu ───────────────────────────────────────────────────────
   return (
     <div className="admin">
@@ -475,6 +601,9 @@ export function Admin() {
         </button>
         <button className="btn admin__menu-item" onClick={() => setView("sections")}>
           Sections
+        </button>
+        <button className="btn admin__menu-item" onClick={() => setView("background")}>
+          Background audio
         </button>
       </div>
 

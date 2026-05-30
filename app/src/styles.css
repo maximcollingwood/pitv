@@ -42,7 +42,7 @@ body {
 
 /* ── TV pages ──────────────────────────────────────────────────────────────── */
 .page {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--visible-bar-h));
   padding: clamp(2.5rem, 5vw, 5.5rem);
   cursor: none; /* remote-driven kiosk */
   display: flex;
@@ -420,6 +420,80 @@ textarea {
   border-color: rgba(179, 38, 30, 0.4);
 }
 
+/* ── Background audio bar (TV, persists across screens) ────────────────────── */
+:root {
+  --bg-bar-h: 3.6rem;
+  --visible-bar-h: 0px; /* updated to --bg-bar-h when the bar is on screen */
+}
+
+body.tv-with-bg-bar {
+  padding-top: var(--bg-bar-h);
+  --visible-bar-h: var(--bg-bar-h);
+}
+
+.bg-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--bg-bar-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0 2vmin;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--hairline);
+  z-index: 50;
+  font-size: 1.1rem;
+  cursor: none;
+}
+
+.bg-bar__label {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.bg-bar__btn {
+  padding: 0.4rem 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: #fff;
+  color: var(--fg);
+  font-weight: 600;
+  transition:
+    transform 0.15s var(--ease),
+    box-shadow 0.15s var(--ease),
+    border-color 0.15s var(--ease);
+}
+
+.bg-bar__pick {
+  max-width: 50vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bg-bar__btn--focused {
+  transform: scale(1.08);
+  border-color: transparent;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.18),
+    0 0 0 3px var(--gold);
+}
+
+/* Off-screen YT iframe — audio plays through the system sink. */
+.bg-audio__player {
+  position: fixed;
+  top: -10000px;
+  left: 0;
+  width: 200px;
+  height: 200px;
+  pointer-events: none;
+  opacity: 0;
+}
+
 /* ── Persistent "scan to control" QR badge (TV corner) ─────────────────────── */
 .remote-badge {
   position: fixed;
@@ -440,6 +514,23 @@ textarea {
   font-size: 0.8rem;
   color: var(--muted);
   font-weight: 600;
+}
+
+/* ── Background audio control on the phone remote (top of the page) ────────── */
+.bg-control {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.bg-control__select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.95rem;
 }
 
 /* ── Phone remote (touch D-pad) — locked, app-like, D-pad toward bottom ─────── */

@@ -12,6 +12,7 @@ import { ArticleReader } from "./pages/ArticleReader";
 import { LyricsView } from "./pages/LyricsView";
 import { PlaylistBrowse } from "./pages/PlaylistBrowse";
 import { Player } from "./pages/Player";
+import { BackgroundPicker } from "./pages/BackgroundPicker";
 import { Remote } from "./pages/Remote";
 import { Admin } from "./pages/Admin";
 
@@ -31,6 +32,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/s/:id/lyrics/:itemId" element={<LyricsView />} />
           <Route path="/playlist/:listId" element={<PlaylistBrowse />} />
           <Route path="/play/:videoId" element={<Player />} />
+          <Route path="/background-picker" element={<BackgroundPicker />} />
         </Route>
         {/* Phone (touch-driven) */}
         <Route path="/remote" element={<Remote />} />

@@ -23,6 +23,18 @@ export interface Info {
   adminUrl: string;
 }
 
+export interface BgTrack {
+  id: number;
+  title: string;
+  youtube_url: string;
+  position: number;
+}
+
+export interface BgState {
+  trackId: number | null;
+  playing: boolean;
+}
+
 export type RemoteAction = "up" | "down" | "left" | "right" | "select" | "back";
 
 export class ApiError extends Error {
@@ -63,6 +75,18 @@ export const api = {
     fetch(`/api/playlist?list=${encodeURIComponent(list)}`).then((r) =>
       parse<{ videos: { id: string; title: string }[]; source: "api" | "rss" }>(r),
     ),
+
+  // Background audio (open, no auth — same trust level as the remote).
+  backgroundTracks: () =>
+    fetch("/api/background/tracks").then((r) => parse<BgTrack[]>(r)),
+  backgroundState: () =>
+    fetch("/api/background/state").then((r) => parse<BgState>(r)),
+  setBackgroundState: (s: Partial<BgState>) =>
+    fetch("/api/background/state", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(s),
+    }).then((r) => parse<BgState>(r)),
 
   // System volume (open, no auth).
   getVolume: () => fetch("/api/system/volume").then((r) => parse<{ level: number }>(r)),
@@ -106,6 +130,15 @@ export const api = {
     authFetch<null>(`/api/admin/sections/${id}`, { method: "DELETE" }),
 
   // ── Admin: section content ──────────────────────────────────────────────
+  // Generic admin CRUD against any /api/admin/* resource root.
+  adminList: <T>(path: string) => authFetch<T[]>(path),
+  adminCreate: <T>(path: string, data: Record<string, unknown>) =>
+    authFetch<T>(path, { method: "POST", body: JSON.stringify(data) }),
+  adminUpdate: <T>(path: string, id: number, data: Record<string, unknown>) =>
+    authFetch<T>(`${path}/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  adminDelete: (path: string, id: number) =>
+    authFetch<null>(`${path}/${id}`, { method: "DELETE" }),
+
   itemsList: (sectionId: number) =>
     authFetch<Item[]>(`/api/admin/sections/${sectionId}/items`),
   createItem: (sectionId: number, data: Record<string, unknown>) =>
