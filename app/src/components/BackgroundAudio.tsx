@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useFocusable } from "@noriginmedia/norigin-spatial-navigation";
 import { api, type BgState, type BgTrack } from "../lib/api";
+import { setCurrentEnter } from "../lib/remoteFocus";
 import { parseYouTube, loadYouTubeApi } from "../lib/youtube";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -22,6 +23,12 @@ function BgTile({
   children: React.ReactNode;
 }) {
   const { ref, focused } = useFocusable({ focusKey, onEnterPress: onEnter });
+  // Match the standard Tile pattern: while focused, register the action so the
+  // phone remote's OK (which goes through fireEnter, not norigin's key listener)
+  // fires THIS tile's handler instead of the previously-focused page tile's.
+  useEffect(() => {
+    if (focused) setCurrentEnter(onEnter ?? null);
+  }, [focused, onEnter]);
   return (
     <div
       ref={ref}
