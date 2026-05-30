@@ -132,9 +132,19 @@ function persistBg() {
   settingsUpsert.run("bg_playing", bgState.playing ? "1" : "0");
 }
 
+function listBgTracks() {
+  return db
+    .prepare("SELECT id, title, youtube_url, position FROM background_tracks ORDER BY position, id")
+    .all();
+}
+
+function bgPayload(): string {
+  return `data: ${JSON.stringify({ tracks: listBgTracks(), state: bgState })}\n\n`;
+}
+
 const bgClients = new Set<ServerResponse>();
 function broadcastBg() {
-  const payload = `data: ${JSON.stringify(bgState)}\n\n`;
+  const payload = bgPayload();
   for (const r of bgClients) r.write(payload);
 }
 
@@ -168,7 +178,7 @@ app.get("/api/background/events", (req, reply) => {
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   });
-  res.write(`data: ${JSON.stringify(bgState)}\n\n`); // initial state
+  res.write(bgPayload()); // initial snapshot (tracks + state)
   bgClients.add(res);
   const ping = setInterval(() => res.write(": ping\n\n"), 25000);
   req.raw.on("close", () => {
@@ -514,13 +524,11 @@ app.register(async (admin) => {
           "INSERT INTO background_tracks (title, youtube_url, position) VALUES (?, ?, ?)",
         )
         .run(title, url, pos);
-      return reply
-        .code(201)
-        .send(
-          db
-            .prepare("SELECT * FROM background_tracks WHERE id = ?")
-            .get(info.lastInsertRowid),
-        );
+      const created = db
+        .prepare("SELECT * FROM background_tracks WHERE id = ?")
+        .get(info.lastInsertRowid);
+      broadcastBg();
+      return reply.code(201).send(created);
     },
   );
 
@@ -540,7 +548,9 @@ app.register(async (admin) => {
               position    = COALESCE(?, position)
         WHERE id = ?`,
     ).run(title ?? null, youtube_url ?? null, position ?? null, req.params.id);
-    return db.prepare("SELECT * FROM background_tracks WHERE id = ?").get(req.params.id);
+    const updated = db.prepare("SELECT * FROM background_tracks WHERE id = ?").get(req.params.id);
+    broadcastBg();
+    return updated;
   });
 
   admin.delete<{ Params: { id: string } }>(
@@ -552,8 +562,9 @@ app.register(async (admin) => {
         bgState.trackId = null;
         bgState.playing = false;
         persistBg();
-        broadcastBg();
       }
+      // Always broadcast — the tracks list changed, both surfaces need to refresh.
+      broadcastBg();
       return reply.code(204).send();
     },
   );

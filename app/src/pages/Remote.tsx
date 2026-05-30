@@ -18,7 +18,9 @@ function BackgroundControl() {
     const src = new EventSource("/api/background/events");
     src.onmessage = (e) => {
       try {
-        setState(JSON.parse(e.data) as BgState);
+        const msg = JSON.parse(e.data) as { tracks?: BgTrack[]; state?: BgState };
+        if (msg.tracks) setTracks(msg.tracks);
+        if (msg.state) setState(msg.state);
       } catch {
         /* ignore */
       }

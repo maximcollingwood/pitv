@@ -62,12 +62,15 @@ export function BackgroundAudio() {
     api.backgroundTracks().then(setTracks).catch(() => {});
   }, []);
 
-  // Subscribe to live state updates (so phone + TV stay in sync).
+  // Subscribe to live updates — the backend pushes BOTH the tracks list and
+  // the state so newly-added tracks propagate without a restart.
   useEffect(() => {
     const src = new EventSource("/api/background/events");
     src.onmessage = (e) => {
       try {
-        setState(JSON.parse(e.data) as BgState);
+        const msg = JSON.parse(e.data) as { tracks?: BgTrack[]; state?: BgState };
+        if (msg.tracks) setTracks(msg.tracks);
+        if (msg.state) setState(msg.state);
       } catch {
         /* ignore */
       }
