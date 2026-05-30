@@ -18,6 +18,11 @@ db.pragma("journal_mode = WAL");
 
 const app = Fastify({ logger: true });
 
+app.log.info(
+  { youtubeApiKeyConfigured: youtubeApiKey.length > 0 },
+  "[startup] YOUTUBE_API_KEY configured?",
+);
+
 // Which table/columns back each preset section type.
 const SECTION_TYPES: Record<string, { table: string; columns: string[]; orderBy: string }> = {
   articles: { table: "articles", columns: ["title", "body"], orderBy: "title" },
@@ -184,6 +189,10 @@ app.get<{ Querystring: { list?: string } }>("/api/playlist", async (req, reply) 
     if (youtubeApiKey) {
       videos = await playlistViaApi(list);
       if (videos) source = "api";
+    } else {
+      app.log.warn(
+        "[playlist] no YOUTUBE_API_KEY set; falling back to RSS (15 most recent)",
+      );
     }
     if (!videos) videos = await playlistViaRss(list);
     if (!videos) return reply.code(502).send({ error: "playlist fetch failed" });
