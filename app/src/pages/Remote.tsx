@@ -99,10 +99,6 @@ export function Remote() {
   return (
     <div className="remote">
       <BackgroundControl />
-      <div className="remote__head">
-        <h1 className="remote__brand">Temple Library</h1>
-        <p className="remote__hint">Use this as your remote</p>
-      </div>
 
       <div className="dpad">
         <button className="dpad__btn dpad__up" onClick={() => press("up")} aria-label="Up">▲</button>
