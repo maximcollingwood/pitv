@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
+import { api } from "../lib/api";
 import { useRemoteBack } from "../lib/useRemoteBack";
 import { setCurrentEnter } from "../lib/remoteFocus";
 import { loadYouTubeApi } from "../lib/youtube";
 
-const clamp = (n: number) => Math.max(0, Math.min(100, n));
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function Player() {
@@ -16,10 +17,16 @@ export function Player() {
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const volRef = useRef<number>(0.05); // local cache of system volume
 
   // No focusable tiles here, so OK must not fire a stale tile action.
   useEffect(() => {
     setCurrentEnter(null);
+  }, []);
+
+  // Cache the current system volume so up/down can step it in 5% increments.
+  useEffect(() => {
+    api.getVolume().then((r) => (volRef.current = r.level)).catch(() => {});
   }, []);
 
   // Build the IFrame player and autostart.
@@ -34,7 +41,14 @@ export function Player() {
         height: "100%",
         videoId,
         playerVars: { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1 },
-        events: { onReady: (e: any) => e.target.playVideo() },
+        events: {
+          onReady: (e: any) => {
+            // YT pushes audio at full; the pi's system volume is what the user
+            // actually adjusts via the remote slider / player up-down.
+            e.target.setVolume(100);
+            e.target.playVideo();
+          },
+        },
       });
     });
     return () => {
@@ -78,16 +92,17 @@ export function Player() {
           show("10s »");
           break;
         case "up": {
-          const v = clamp((p.getVolume?.() ?? 0) + 10);
-          p.unMute?.();
-          p.setVolume?.(v);
-          show(`Volume ${v}%`);
+          const next = clamp01(volRef.current + 0.05);
+          volRef.current = next;
+          api.setVolume(next).catch(() => {});
+          show(`Volume ${Math.round(next * 100)}%`);
           break;
         }
         case "down": {
-          const v = clamp((p.getVolume?.() ?? 0) - 10);
-          p.setVolume?.(v);
-          show(`Volume ${v}%`);
+          const next = clamp01(volRef.current - 0.05);
+          volRef.current = next;
+          api.setVolume(next).catch(() => {});
+          show(`Volume ${Math.round(next * 100)}%`);
           break;
         }
       }

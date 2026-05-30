@@ -64,6 +64,15 @@ export const api = {
       parse<{ videos: { id: string; title: string }[]; source: "api" | "rss" }>(r),
     ),
 
+  // System volume (open, no auth).
+  getVolume: () => fetch("/api/system/volume").then((r) => parse<{ level: number }>(r)),
+  setVolume: (level: number) =>
+    fetch("/api/system/volume", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ level }),
+    }).then((r) => parse<{ level: number }>(r)),
+
   // Fire-and-forget remote-control press (open, no auth).
   press: (action: RemoteAction) =>
     fetch("/api/remote/press", {

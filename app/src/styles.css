@@ -532,6 +532,61 @@ body.lock {
   max-width: 320px;
 }
 
+/* ── Volume slider (phone remote) ─────────────────────────────────────────── */
+.volume {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.95rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.volume__label {
+  width: 2rem;
+  text-align: right;
+}
+
+.volume__pct {
+  width: 3rem;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.volume__slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hairline);
+  outline: none;
+  padding: 0;
+}
+
+.volume__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--red);
+  border: none;
+  cursor: pointer;
+}
+
+.volume__slider::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--red);
+  border: none;
+  cursor: pointer;
+}
+
 .remote__edit {
   margin-top: 1rem;
   color: var(--muted);

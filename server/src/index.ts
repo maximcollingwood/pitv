@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import os from "node:os";
 import type { ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -221,6 +222,49 @@ app.get("/api/remote/events", (req, reply) => {
     clearInterval(ping);
     remoteClients.delete(res);
   });
+});
+
+// ── System volume (open, no auth — same trust level as the remote control) ──
+function callVolume(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "sudo",
+      ["-n", "/usr/local/bin/kiosk-volume", ...args],
+      { timeout: 3000 },
+      (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr.toString().trim() || err.message));
+        else resolve(stdout.toString().trim());
+      },
+    );
+  });
+}
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+app.get("/api/system/volume", async (_req, reply) => {
+  try {
+    const out = await callVolume(["get"]);
+    const level = Number(out);
+    if (!Number.isFinite(level)) throw new Error(`unparseable: ${out}`);
+    return { level: clamp01(level) };
+  } catch (e) {
+    return reply.code(500).send({ error: String(e) });
+  }
+});
+
+app.post<{ Body: { level?: number } }>("/api/system/volume", async (req, reply) => {
+  const raw = Number(req.body?.level);
+  if (!Number.isFinite(raw) || raw < 0 || raw > 1) {
+    return reply.code(400).send({ error: "level must be a number between 0 and 1" });
+  }
+  // Round to 2 decimals so the wrapper's pattern accepts it (0, 1, 0.X, 0.XX).
+  const level = Math.round(clamp01(raw) * 100) / 100;
+  try {
+    await callVolume([level.toString()]);
+    return { level };
+  } catch (e) {
+    return reply.code(500).send({ error: String(e) });
+  }
 });
 
 app.post<{ Body: { action?: string } }>("/api/remote/press", async (req, reply) => {

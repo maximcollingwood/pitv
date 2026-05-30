@@ -49,11 +49,12 @@
         pactl set-card-profile "$card" output:hdmi-stereo 2>/dev/null || true
       done
 
-      # Make the first HDMI sink the default, then max its volume.
+      # Make the first HDMI sink the default. Volume defaults low (5%) so a
+      # freshly-booted device is never loud; the phone remote slider adjusts it.
       hdmi_sink=$(pactl list short sinks | awk '/hdmi/{print $2; exit}')
       if [ -n "$hdmi_sink" ]; then
         pactl set-default-sink "$hdmi_sink" || true
-        wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0 || true
+        wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.05 || true
       fi
 
 - name: Install kiosk audio setup user service
@@ -77,3 +78,47 @@
 - name: Enable kiosk audio setup user service globally
   ansible.builtin.command: "systemctl --global enable kiosk-audio-setup.service"
   changed_when: false
+
+# Volume-control wrapper: runs as root (via sudo) and switches to the kiosk
+# user with the right XDG_RUNTIME_DIR so wpctl can talk to its PipeWire. The
+# backend (which runs as the unprivileged 'pitv' user) calls this via sudo.
+- name: Install kiosk volume wrapper
+  ansible.builtin.copy:
+    dest: /usr/local/bin/kiosk-volume
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Get or set the kiosk user's default sink volume.
+      #   kiosk-volume          -> print current level (0..1)
+      #   kiosk-volume get      -> same
+      #   kiosk-volume <0..1>   -> set to that level
+      set -e
+      uid=$(id -u kiosk)
+      runtime="/run/user/$uid"
+      arg="${1:-get}"
+      case "$arg" in
+        get|GET)
+          sudo -u kiosk env XDG_RUNTIME_DIR="$runtime" /usr/bin/wpctl get-volume @DEFAULT_AUDIO_SINK@ \
+            | awk '{print $2}'
+          ;;
+        0|1|1.0|0.[0-9]|0.[0-9][0-9])
+          sudo -u kiosk env XDG_RUNTIME_DIR="$runtime" /usr/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ "$arg"
+          ;;
+        *)
+          echo "usage: kiosk-volume [get | <0..1>]" >&2
+          exit 2
+          ;;
+      esac
+
+- name: Allow the backend to call the volume wrapper without a password
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/kiosk-volume
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      # The backend (pitv) controls system volume through this wrapper only.
+      {{ backend_user }} ALL=(root) NOPASSWD: /usr/local/bin/kiosk-volume
