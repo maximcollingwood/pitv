@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { useRemoteBack } from "../lib/useRemoteBack";
 import { setCurrentEnter } from "../lib/remoteFocus";
 import { loadYouTubeApi } from "../lib/youtube";
@@ -10,6 +10,8 @@ const clamp = (n: number) => Math.max(0, Math.min(100, n));
 export function Player() {
   useRemoteBack();
   const { videoId } = useParams();
+  const location = useLocation();
+  const title = (location.state as { title?: string } | null)?.title;
   const [flash, setFlash] = useState<string | null>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -99,6 +101,7 @@ export function Player() {
 
   return (
     <div className="player">
+      {title && <h1 className="player__title">{title}</h1>}
       <div className="player__stage">
         <div className="player__frame" ref={mountRef} />
       </div>

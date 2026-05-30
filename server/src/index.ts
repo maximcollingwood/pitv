@@ -149,7 +149,16 @@ async function playlistViaApi(list: string): Promise<PlaylistVideo[] | null> {
     if (pageToken) url.searchParams.set("pageToken", pageToken);
 
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Make failures visible (quota, bad key, API disabled, etc.) instead of
+      // silently falling back to the 15-video RSS feed.
+      const body = await res.text().catch(() => "");
+      app.log.error(
+        { status: res.status, body: body.slice(0, 300) },
+        "[playlist] YouTube Data API request failed",
+      );
+      return null;
+    }
     const data = (await res.json()) as {
       items?: { snippet?: { title?: string; resourceId?: { videoId?: string } } }[];
       nextPageToken?: string;
@@ -170,10 +179,15 @@ app.get<{ Querystring: { list?: string } }>("/api/playlist", async (req, reply) 
   const list = req.query.list;
   if (!list) return reply.code(400).send({ error: "list required" });
   try {
-    let videos = youtubeApiKey ? await playlistViaApi(list) : null;
+    let videos: PlaylistVideo[] | null = null;
+    let source: "api" | "rss" = "rss";
+    if (youtubeApiKey) {
+      videos = await playlistViaApi(list);
+      if (videos) source = "api";
+    }
     if (!videos) videos = await playlistViaRss(list);
     if (!videos) return reply.code(502).send({ error: "playlist fetch failed" });
-    return { videos };
+    return { videos, source };
   } catch {
     return reply.code(502).send({ error: "playlist fetch failed" });
   }

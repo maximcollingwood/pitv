@@ -28,8 +28,9 @@ export function SectionItems() {
 
   function open(it: Item) {
     const parsed = parseYouTube(String(it.youtube_url ?? ""));
-    if (parsed.kind === "playlist") navigate(`/playlist/${parsed.id}`);
-    else if (parsed.kind === "video") navigate(`/play/${parsed.id}`);
+    const title = String(it.title);
+    if (parsed.kind === "playlist") navigate(`/playlist/${parsed.id}`, { state: { title } });
+    else if (parsed.kind === "video") navigate(`/play/${parsed.id}`, { state: { title } });
   }
 
   return (

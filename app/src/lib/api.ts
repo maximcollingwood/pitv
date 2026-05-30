@@ -61,7 +61,7 @@ export const api = {
     fetch(`/api/sections/${id}/items`).then((r) => parse<Item[]>(r)),
   playlist: (list: string) =>
     fetch(`/api/playlist?list=${encodeURIComponent(list)}`).then((r) =>
-      parse<{ videos: { id: string; title: string }[] }>(r),
+      parse<{ videos: { id: string; title: string }[]; source: "api" | "rss" }>(r),
     ),
 
   // Fire-and-forget remote-control press (open, no auth).

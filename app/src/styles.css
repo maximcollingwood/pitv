@@ -43,10 +43,11 @@ body {
 /* ── TV pages ──────────────────────────────────────────────────────────────── */
 .page {
   min-height: 100vh;
-  padding: clamp(2rem, 5vw, 5rem);
+  padding: clamp(2.5rem, 5vw, 5.5rem);
   cursor: none; /* remote-driven kiosk */
   display: flex;
   flex-direction: column;
+  align-items: center;     /* center the section's grid horizontally */
 }
 
 .page--home,
@@ -63,7 +64,7 @@ body {
 }
 
 .hero__title {
-  font-size: clamp(2.5rem, 7vw, 5rem);
+  font-size: clamp(4rem, 9vw, 8rem);
   font-weight: 700;
   letter-spacing: -0.02em;
   margin: 0;
@@ -74,18 +75,19 @@ body {
 }
 
 .hero__subtitle {
-  font-size: clamp(1rem, 2.2vw, 1.6rem);
+  font-size: clamp(1.6rem, 2.6vw, 2.4rem);
   color: var(--muted);
-  margin-top: 0.6rem;
+  margin-top: 1rem;
 }
 
 .page__header {
   width: 100%;
-  margin-bottom: clamp(1.5rem, 4vh, 3rem);
+  margin-bottom: clamp(2rem, 4.5vh, 3.5rem);
+  text-align: center;
 }
 
 .page__title {
-  font-size: clamp(1.8rem, 4.5vw, 3.2rem);
+  font-size: clamp(2.8rem, 6vw, 5rem);
   font-weight: 700;
   letter-spacing: -0.02em;
   margin: 0;
@@ -95,12 +97,13 @@ body {
 .grid {
   display: grid;
   width: 100%;
-  gap: clamp(1rem, 2.5vw, 2rem);
+  gap: clamp(1.5rem, 3vw, 2.5rem);
+  justify-content: center; /* center columns when content doesn't fill the row */
 }
 
 .grid--nav {
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-  max-width: 1100px;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  max-width: 1400px;
 }
 
 .grid--footer {
@@ -111,11 +114,12 @@ body {
 
 .grid--list {
   grid-template-columns: 1fr;
-  max-width: 900px;
+  max-width: 1100px;
 }
 
 .grid--cards {
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  max-width: 1500px;
 }
 
 /* ── Tiles (focusable cards) ───────────────────────────────────────────────── */
@@ -124,7 +128,7 @@ body {
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: clamp(1.2rem, 2.5vw, 2rem);
+  padding: clamp(1.6rem, 3vw, 2.4rem);
   transition:
     transform 0.18s var(--ease),
     box-shadow 0.18s var(--ease),
@@ -149,16 +153,17 @@ body {
 }
 
 .tile__label {
-  font-size: clamp(1.4rem, 3vw, 2.2rem);
+  font-size: clamp(1.8rem, 3.8vw, 3rem);
   font-weight: 600;
+  text-align: center;
 }
 
 .tile--list {
-  padding: clamp(1rem, 2vw, 1.5rem) clamp(1.4rem, 3vw, 2rem);
+  padding: clamp(1.4rem, 2.6vw, 2rem) clamp(2rem, 3.5vw, 3rem);
 }
 
 .tile__title {
-  font-size: clamp(1.2rem, 2.6vw, 1.8rem);
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
   font-weight: 600;
 }
 
@@ -176,14 +181,14 @@ body {
 
 .tile__meta {
   color: var(--muted);
-  margin: 0 0 0.8rem;
-  font-size: 1.05rem;
+  margin: 0 0 0.9rem;
+  font-size: clamp(1.1rem, 1.6vw, 1.4rem);
 }
 
 .tile__desc {
-  margin: 0.8rem 0 0;
+  margin: 1rem 0 0;
   color: var(--fg);
-  font-size: 1.05rem;
+  font-size: clamp(1.1rem, 1.7vw, 1.4rem);
   line-height: 1.5;
 }
 
@@ -192,8 +197,8 @@ body {
   background: rgba(201, 162, 39, 0.15);
   color: #8a6d12;
   border-radius: 999px;
-  padding: 0.3rem 0.9rem;
-  font-size: 0.9rem;
+  padding: 0.35rem 1rem;
+  font-size: clamp(0.95rem, 1.4vw, 1.15rem);
   font-weight: 600;
 }
 
@@ -535,29 +540,35 @@ body.lock {
   padding: 0.5rem;
 }
 
-/* ── Video player (TV) — framed, not fullscreen ────────────────────────────── */
+/* ── Video player (TV) — framed; title lives in the top margin ─────────────── */
 .player {
-  min-height: 100vh;
+  height: 100vh;
   cursor: none;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: clamp(1rem, 3vh, 2rem);
-  padding: clamp(2rem, 5vw, 4rem);
+  gap: 0.8rem;
+  padding: 1.5vmin 2vmin;
 }
 
+/* Title in the margin: compact text above the stage, not eating its real estate. */
 .player__title {
-  font-size: clamp(1.5rem, 3.5vw, 2.6rem);
-  font-weight: 700;
+  font-size: clamp(1.2rem, 2vw, 1.8rem);
+  font-weight: 600;
+  color: var(--muted);
   margin: 0;
   text-align: center;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .player__stage {
   width: 100%;
-  max-width: 1280px;
   aspect-ratio: 16 / 9;
+  max-height: calc(100vh - 5rem);   /* reserve a touch for title + hint */
   border-radius: var(--radius);
   overflow: hidden;
   background: #000;
@@ -574,7 +585,7 @@ body.lock {
 
 .player__hint {
   color: var(--muted);
-  font-size: 1rem;
+  font-size: 0.9rem;
   margin: 0;
 }
 

@@ -12,12 +12,16 @@ export function PlaylistBrowse() {
   const navigate = useNavigate();
   const { listId = "" } = useParams();
   const [videos, setVideos] = useState<{ id: string; title: string }[]>([]);
+  const [source, setSource] = useState<"api" | "rss">("api");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api
       .playlist(listId)
-      .then((r) => setVideos(r.videos))
+      .then((r) => {
+        setVideos(r.videos);
+        setSource(r.source);
+      })
       .catch(() => setError("Could not load playlist."));
   }, [listId]);
 
@@ -32,13 +36,19 @@ export function PlaylistBrowse() {
       </header>
       {error && <p className="error">{error}</p>}
       {!error && videos.length === 0 && <p className="muted">Loading…</p>}
+      {!error && videos.length > 0 && source === "rss" && (
+        <p className="muted">
+          Showing {videos.length} most recent. Set YOUTUBE_API_KEY on the device
+          for the full playlist.
+        </p>
+      )}
       <Grid className="grid grid--list">
         {videos.map((v, i) => (
           <Tile
             key={v.id}
             focusKey={`pl-${i}`}
             className="tile--list"
-            onEnter={() => navigate(`/play/${v.id}`)}
+            onEnter={() => navigate(`/play/${v.id}`, { state: { title: v.title } })}
           >
             <span className="tile__title">{v.title}</span>
           </Tile>
