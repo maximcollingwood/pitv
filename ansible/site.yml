@@ -16,4 +16,5 @@
     # Kiosk display layer.
     - kiosk-user
     - display
+    - audio
     - kiosk-service

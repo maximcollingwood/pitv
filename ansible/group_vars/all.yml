@@ -35,11 +35,12 @@ kiosk_repo_branch: "main"
 # ──────────────────────────────────────────────────────────────────────────
 kiosk_user: "kiosk"
 kiosk_uid: 1001                       # fixed so XDG_RUNTIME_DIR is deterministic
-kiosk_groups:                         # seat/DRM/input access for the compositor
+kiosk_groups:                         # seat/DRM/input/audio access
   - video
   - render
   - input
   - tty
+  - audio
 kiosk_data_dir: "/home/{{ kiosk_user }}/.kiosk-profile"  # disposable Chromium state
 
 # Escape-hatch console: Ctrl+Alt+F<this> reaches a login shell; Ctrl+Alt+F1

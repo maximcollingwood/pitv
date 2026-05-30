@@ -1,0 +1,24 @@
+---
+# Pi OS Lite ships no audio server, so Chromium has nothing to route sound to.
+# Install PipeWire + the PulseAudio compatibility layer (which is what Chromium
+# talks to) + WirePlumber as the session manager. The kiosk user's PAM/login
+# session (PAMName=login) auto-starts the user-level PipeWire on next start.
+- name: Install PipeWire audio stack
+  ansible.builtin.apt:
+    name:
+      - pipewire           # core audio server
+      - pipewire-pulse     # PulseAudio API shim — what Chromium uses
+      - wireplumber        # PipeWire session manager (sink/source policy)
+      - pipewire-alsa      # ALSA → PipeWire bridge for ALSA clients
+      - alsa-utils         # aplay / speaker-test for diagnostics
+    state: present
+
+# These ship as user services; enable them for every user (the kiosk user
+# included) so they auto-start whenever a session opens.
+- name: Enable PipeWire user services globally
+  ansible.builtin.command: "systemctl --global enable {{ item }}"
+  loop:
+    - pipewire.socket
+    - pipewire-pulse.socket
+    - wireplumber.service
+  changed_when: false

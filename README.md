@@ -42,6 +42,7 @@ ansible/
     app/                    frontend build + nginx (serves SPA, proxies /api)
     kiosk-user/             dedicated locked-down kiosk user
     display/                labwc + xwayland + chromium
+    audio/                  PipeWire + pipewire-pulse (Chromium audio backend)
     kiosk-service/          systemd unit, labwc config, launch scripts, update-kiosk
 ```
 
