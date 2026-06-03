@@ -291,6 +291,30 @@ export function Admin() {
     }
   }
 
+  async function moveItem(item: Item, dir: "up" | "down") {
+    if (!active) return;
+    const sorted = [...items].sort((a, b) => {
+      const pa = Number(a.position ?? 0);
+      const pb = Number(b.position ?? 0);
+      if (pa !== pb) return pa - pb;
+      return String(a.title).localeCompare(String(b.title));
+    });
+    const idx = sorted.findIndex((x) => x.id === item.id);
+    const swap = dir === "up" ? idx - 1 : idx + 1;
+    if (swap < 0 || swap >= sorted.length) return;
+    const other = sorted[swap];
+    const ip = Number(item.position ?? 0);
+    const op = Number(other.position ?? 0);
+    try {
+      await api.updateItem(active.id, Number(item.id), { position: op });
+      await api.updateItem(active.id, Number(other.id), { position: ip });
+      const fresh = await api.itemsList(active.id);
+      setItems(fresh);
+    } catch (e) {
+      handleError(e);
+    }
+  }
+
   // ── Render: PIN gate ──────────────────────────────────────────────────────────
   if (!token) {
     return (
@@ -509,6 +533,12 @@ export function Admin() {
             <li key={it.id} className="admin__item">
               <span className="admin__item-title">{String(it.title)}</span>
               <span className="admin__item-actions">
+                {(active.type === "articles" || active.type === "lyrics") && (
+                  <>
+                    <button className="btn btn--small" onClick={() => moveItem(it, "up")}>↑</button>
+                    <button className="btn btn--small" onClick={() => moveItem(it, "down")}>↓</button>
+                  </>
+                )}
                 <button className="btn btn--small" onClick={() => openEditItem(it)}>Edit</button>
                 <button className="btn btn--small btn--danger" onClick={() => deleteItem(it.id)}>
                   Delete

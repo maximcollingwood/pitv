@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api, type Item } from "../lib/api";
 import { useRemoteBack } from "../lib/useRemoteBack";
 
@@ -32,8 +32,10 @@ function fitLyrics(el: HTMLElement) {
 
 export function LyricsView() {
   useRemoteBack();
+  const navigate = useNavigate();
   const { id = "", itemId = "" } = useParams();
   const [item, setItem] = useState<Item | null>(null);
+  const [siblings, setSiblings] = useState<Item[]>([]);
   const [error, setError] = useState<string | null>(null);
   const colsRef = useRef<HTMLDivElement>(null);
 
@@ -41,12 +43,39 @@ export function LyricsView() {
     api
       .sectionItems(id)
       .then((items) => {
+        setSiblings(items); // already in section order from the backend
         const found = items.find((it) => String(it.id) === itemId);
         if (found) setItem(found);
         else setError("Could not load these lyrics.");
       })
       .catch(() => setError("Could not load these lyrics."));
   }, [id, itemId]);
+
+  // Slideshow: left/right cycle through songs in this section (wraps around).
+  useEffect(() => {
+    if (siblings.length <= 1) return;
+    const go = (dir: -1 | 1) => {
+      const idx = siblings.findIndex((it) => String(it.id) === itemId);
+      if (idx < 0) return;
+      const next = (idx + dir + siblings.length) % siblings.length;
+      navigate(`/s/${id}/lyrics/${siblings[next].id}`, { replace: true });
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") { e.preventDefault(); go(-1); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); go(1); }
+    };
+    const onRemote = (e: Event) => {
+      const action = (e as CustomEvent<string>).detail;
+      if (action === "left") go(-1);
+      else if (action === "right") go(1);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pitv:remote", onRemote);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pitv:remote", onRemote);
+    };
+  }, [siblings, id, itemId, navigate]);
 
   const verses = String(item?.body ?? "")
     .split(/\n\s*\n/)

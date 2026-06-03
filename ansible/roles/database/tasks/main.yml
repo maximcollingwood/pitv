@@ -57,6 +57,20 @@
   ansible.builtin.command: "sqlite3 '{{ db_path }}' 'PRAGMA user_version = {{ db_schema_version }};'"
   changed_when: false
 
+# Additive migrations — applied if the column doesn't exist yet, so existing
+# DBs catch up without a destructive reset.
+- name: Inspect articles columns
+  ansible.builtin.command: "sqlite3 '{{ db_path }}' \"PRAGMA table_info(articles)\""
+  register: articles_cols
+  changed_when: false
+
+- name: Add articles.position (and seed initial order by title)
+  ansible.builtin.shell: |
+    set -e
+    sqlite3 '{{ db_path }}' "ALTER TABLE articles ADD COLUMN position INTEGER NOT NULL DEFAULT 0;"
+    sqlite3 '{{ db_path }}' "UPDATE articles SET position = (SELECT COUNT(*) FROM articles a2 WHERE a2.section_id = articles.section_id AND a2.title <= articles.title);"
+  when: "'position' not in articles_cols.stdout"
+
 - name: Ensure database file is owned by the backend user
   ansible.builtin.file:
     path: "{{ db_path }}"

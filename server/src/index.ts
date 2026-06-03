@@ -26,10 +26,10 @@ app.log.info(
 
 // Which table/columns back each preset section type.
 const SECTION_TYPES: Record<string, { table: string; columns: string[]; orderBy: string }> = {
-  articles: { table: "articles", columns: ["title", "body"], orderBy: "title" },
+  articles: { table: "articles", columns: ["title", "body", "position"], orderBy: "position, title" },
   // Lyrics share the article shape (title + body of blank-line-separated verses);
   // only the TV display differs, so they reuse the articles table.
-  lyrics: { table: "articles", columns: ["title", "body"], orderBy: "title" },
+  lyrics: { table: "articles", columns: ["title", "body", "position"], orderBy: "position, title" },
   media: {
     table: "media_items",
     columns: ["category", "title", "youtube_url", "is_playlist"],
@@ -457,6 +457,13 @@ app.register(async (admin) => {
       const ctx = itemContext(req.params.id);
       if (!ctx) return reply.code(404).send({ error: "not found" });
       const body = req.body ?? {};
+      // Auto-assign next position for tables that order by it.
+      if (ctx.cfg.columns.includes("position") && body.position === undefined) {
+        const row = db
+          .prepare(`SELECT COALESCE(MAX(position), -1) + 1 AS p FROM ${ctx.cfg.table} WHERE section_id = ?`)
+          .get(ctx.section.id) as { p: number };
+        body.position = row.p;
+      }
       const cols = ctx.cfg.columns.filter((c) => body[c] !== undefined);
       const allCols = ["section_id", ...cols];
       const values = [ctx.section.id, ...cols.map((c) => body[c] as never)];
