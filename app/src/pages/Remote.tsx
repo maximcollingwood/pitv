@@ -10,6 +10,24 @@ function BackgroundControl() {
     const [tracks, setTracks] = useState<BgTrack[]>([]);
     const [state, setState] = useState<BgState>({ trackId: null, playing: false });
 
+    // Brief optimistic spinner after a user action — the phone doesn't know
+    // when the TV's YT player has actually started, so we just give visual
+    // feedback for ~1.5s. If the request fails, we drop the spinner early.
+    const [pending, setPending] = useState(false);
+    const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    function startPending() {
+        setPending(true);
+        if (pendingTimer.current) clearTimeout(pendingTimer.current);
+        pendingTimer.current = setTimeout(() => setPending(false), 1500);
+    }
+    function clearPending() {
+        setPending(false);
+        if (pendingTimer.current) clearTimeout(pendingTimer.current);
+    }
+    useEffect(() => () => {
+        if (pendingTimer.current) clearTimeout(pendingTimer.current);
+    }, []);
+
     useEffect(() => {
         api.backgroundTracks().then(setTracks).catch(() => { });
     }, []);
@@ -31,12 +49,14 @@ function BackgroundControl() {
     const onPick = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const v = e.target.value;
         const id = v === "" ? null : Number(v);
-        api.setBackgroundState({ trackId: id, playing: id != null }).catch(() => { });
+        startPending();
+        api.setBackgroundState({ trackId: id, playing: id != null }).catch(clearPending);
     };
 
     const toggle = () => {
         if (state.trackId == null) return;
-        api.setBackgroundState({ playing: !state.playing }).catch(() => { });
+        startPending();
+        api.setBackgroundState({ playing: !state.playing }).catch(clearPending);
     };
 
     return (
@@ -57,9 +77,9 @@ function BackgroundControl() {
             <button
                 className="btn btn--small"
                 onClick={toggle}
-                disabled={state.trackId == null}
+                disabled={state.trackId == null || pending}
             >
-                {state.playing ? "Pause" : "Play"}
+                {pending ? <span className="spinner" aria-label="Loading" /> : (state.playing ? "Pause" : "Play")}
             </button>
         </div>
     );

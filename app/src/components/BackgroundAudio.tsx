@@ -8,6 +8,9 @@ import { isImmersiveRoute } from "../lib/immersive";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// YT.PlayerState codes — named for readability.
+const YT_PLAYING = 1;
+
 function BgTile({
   focusKey,
   onEnter,
@@ -47,6 +50,11 @@ export function BackgroundAudio() {
 
   const [tracks, setTracks] = useState<BgTrack[]>([]);
   const [state, setState] = useState<BgState>({ trackId: null, playing: false });
+
+  // Player lifecycle: ready latch + actual YT player state + error flag.
+  const [playerReady, setPlayerReady] = useState(false);
+  const [actualState, setActualState] = useState<number>(-1);
+  const [hasError, setHasError] = useState(false);
 
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -91,11 +99,18 @@ export function BackgroundAudio() {
         height: "200",
         playerVars: { autoplay: 0, rel: 0, playsinline: 1, modestbranding: 1 },
         events: {
-          onReady: (e: any) => e.target.setVolume(100),
+          onReady: (e: any) => {
+            e.target.setVolume(100);
+            setPlayerReady(true);
+          },
           onStateChange: (e: any) => {
+            setActualState(e.data);
+            // Any successful state change clears a previous error.
+            setHasError(false);
             // Loop: when a video ENDs (state 0), replay it.
             if (e.data === 0) playerRef.current?.playVideo?.();
           },
+          onError: () => setHasError(true),
         },
       });
     });
@@ -111,7 +126,10 @@ export function BackgroundAudio() {
   }, []);
 
   // React to state / route — load new video, play, or pause as needed.
+  // Includes playerReady so we don't lose the initial state apply when YT
+  // finishes async-loading after the first state arrives.
   useEffect(() => {
+    if (!playerReady) return;
     const p = playerRef.current;
     if (!p || typeof p.loadVideoById !== "function") return;
     const track = tracks.find((t) => t.id === state.trackId);
@@ -121,8 +139,9 @@ export function BackgroundAudio() {
     if (wantPlay) {
       if (videoId !== currentVideoRef.current) {
         currentVideoRef.current = videoId;
+        setHasError(false);
         p.loadVideoById(videoId);
-      } else if (p.getPlayerState && p.getPlayerState() !== 1) {
+      } else if (p.getPlayerState && p.getPlayerState() !== YT_PLAYING) {
         p.playVideo?.();
       }
     } else {
@@ -132,7 +151,7 @@ export function BackgroundAudio() {
         /* ignore */
       }
     }
-  }, [state, tracks, pauseAudio]);
+  }, [state, tracks, pauseAudio, playerReady]);
 
   function togglePlay() {
     if (state.trackId == null) {
@@ -145,7 +164,16 @@ export function BackgroundAudio() {
 
   const track = tracks.find((t) => t.id === state.trackId);
   const trackLabel = track ? track.title : "Select a track";
-  const stateLabel = state.playing ? "Playing" : "Paused";
+
+  // Surface the player's actual state, not just the user-intended state.
+  // Intended = user wants playback right now (and the bar route allows it).
+  const intended = state.playing && !pauseAudio && state.trackId != null;
+  const isPlayingNow = actualState === YT_PLAYING;
+  const playLabel =
+    intended && hasError ? "Unavailable"
+    : !intended ? "Paused"
+    : isPlayingNow ? "Playing"
+    : <span className="spinner" aria-label="Loading" />;
 
   return (
     <>
@@ -160,7 +188,7 @@ export function BackgroundAudio() {
             {trackLabel}
           </BgTile>
           <BgTile focusKey="bg-play" onEnter={togglePlay}>
-            {stateLabel}
+            {playLabel}
           </BgTile>
         </div>
       )}
