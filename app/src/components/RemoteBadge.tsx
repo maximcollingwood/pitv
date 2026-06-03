@@ -15,7 +15,7 @@ export function RemoteBadge() {
 
   return (
     <div className="remote-badge">
-      <QRCodeSVG value={remoteUrl} size={84} fgColor="#1d1d1f" />
+      <QRCodeSVG value={remoteUrl} size={160} fgColor="#1d1d1f" />
       <span className="remote-badge__label">Scan to control</span>
     </div>
   );
