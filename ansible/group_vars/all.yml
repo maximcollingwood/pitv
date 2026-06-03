@@ -60,7 +60,9 @@ chromium_flags:
   - "--kiosk"
   - "--noerrdialogs"
   - "--disable-infobars"
-  - "--incognito"
+  # Note: deliberately NOT --incognito. Incognito mode keeps localStorage in
+  # memory only, so per-device preferences (dark mode, etc.) wouldn't persist
+  # across reboots. The dedicated --user-data-dir keeps things isolated.
   - "--disable-session-crashed-bubble"
   - "--disable-features=Translate"
   - "--no-first-run"
