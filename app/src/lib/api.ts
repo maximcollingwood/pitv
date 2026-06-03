@@ -11,6 +11,7 @@ export interface Section {
 export interface Config {
   title: string;
   subtitle: string;
+  dark: boolean;
   sections: Section[];
 }
 
@@ -75,6 +76,14 @@ export const api = {
     fetch(`/api/playlist?list=${encodeURIComponent(list)}`).then((r) =>
       parse<{ videos: { id: string; title: string }[]; source: "api" | "rss" }>(r),
     ),
+
+  // Dark mode (open — same trust level as the remote).
+  setDark: (dark: boolean) =>
+    fetch("/api/dark-mode", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dark }),
+    }).then((r) => parse<{ dark: boolean }>(r)),
 
   // Background audio (open, no auth — same trust level as the remote).
   backgroundTracks: () =>

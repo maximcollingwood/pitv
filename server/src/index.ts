@@ -98,8 +98,18 @@ app.get("/api/config", async () => {
   return {
     title: settings.title ?? "",
     subtitle: settings.subtitle ?? "",
+    dark: settings.dark_mode === "1",
     sections,
   };
+});
+
+// Public dark-mode toggle (same trust level as the remote + volume control).
+// Persisted in the settings table so it survives even if Chromium's
+// localStorage gets cleared.
+app.post<{ Body: { dark?: boolean } }>("/api/dark-mode", async (req) => {
+  const dark = Boolean(req.body?.dark);
+  settingsUpsert.run("dark_mode", dark ? "1" : "0");
+  return { dark };
 });
 
 // ── Background audio (one global track, looped) ─────────────────────────────
