@@ -18,3 +18,42 @@
       - xwayland          # let Chromium render via X (as it did under cage)
       - "{{ chromium_package }}"
     state: present
+
+# Hide the mouse cursor system-wide by shipping a transparent Xcursor theme
+# and pointing the session at it (XCURSOR_THEME=blank in the launch script).
+# labwc + Xwayland both honor Xcursor lookup.
+- name: Ensure blank Xcursor theme directory exists
+  ansible.builtin.file:
+    path: /usr/share/icons/blank/cursors
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install blank Xcursor theme index
+  ansible.builtin.copy:
+    dest: /usr/share/icons/blank/index.theme
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Icon Theme]
+      Name=blank
+      Comment=Fully transparent cursor for the kiosk
+
+# Generate a minimal 1x1 fully-transparent Xcursor binary as the theme's
+# "default" cursor. Compositors that can't find a named cursor fall back to
+# "default", so this catches every cursor request.
+- name: Generate the blank default cursor
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import struct
+    header = struct.pack('<4sIII', b'Xcur', 16, 0x10000, 1)
+    toc    = struct.pack('<III', 0xfffd0002, 1, 28)
+    img    = struct.pack('<IIIIIIIII', 36, 0xfffd0002, 1, 1, 1, 1, 0, 0, 0)
+    pixel  = b'\x00\x00\x00\x00'  # 1px BGRA, fully transparent
+    with open('/usr/share/icons/blank/cursors/default', 'wb') as f:
+        f.write(header + toc + img + pixel)
+    PY
+  args:
+    creates: /usr/share/icons/blank/cursors/default

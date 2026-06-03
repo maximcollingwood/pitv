@@ -7,4 +7,9 @@ set -eu
 
 export XDG_RUNTIME_DIR="/run/user/{{ kiosk_uid }}"
 
+# Use the transparent cursor theme installed by the display role so the mouse
+# pointer is invisible everywhere on the kiosk.
+export XCURSOR_THEME=blank
+export XCURSOR_SIZE=1
+
 exec labwc -C /etc/kiosk/labwc
