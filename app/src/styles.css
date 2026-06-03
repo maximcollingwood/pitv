@@ -14,6 +14,30 @@
     Helvetica, Arial, sans-serif;
 }
 
+body.dark {
+  --bg: #0a0a0c;
+  --fg: #f0f0f2;
+  --muted: #9a9aa0;
+  --card: #1a1a1f;
+  --hairline: rgba(255, 255, 255, 0.12);
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+  --shadow-focus: 0 18px 50px rgba(0, 0, 0, 0.7);
+}
+
+/* Things with hardcoded translucent backgrounds need dark-mode overrides. */
+body.dark .bg-bar {
+  background: rgba(20, 20, 25, 0.92);
+}
+
+/* QR badge stays light so the code remains scannable; pin its label to dark
+   muted so it's readable on white in either theme. */
+body.dark .remote-badge {
+  background: #fff;
+}
+body.dark .remote-badge__label {
+  color: #6e6e73;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -161,6 +185,15 @@ body {
   text-align: center;
   letter-spacing: -0.01em;
   line-height: 1.05;
+}
+
+/* Subtle pill — used for the dark-mode toggle in the home footer. */
+.tile--toggle {
+  text-align: center;
+  font-weight: 600;
+  color: var(--muted);
+  font-size: clamp(1.2rem, 1.8vw, 1.6rem);
+  padding: 0.9rem 1.4rem;
 }
 
 .tile--list {
@@ -377,7 +410,7 @@ select {
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  background: #fff;
+  background: var(--card);
   color: var(--fg);
 }
 
@@ -400,7 +433,7 @@ textarea {
   padding: 0.7rem 1.2rem;
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  background: #fff;
+  background: var(--card);
   color: var(--fg);
   cursor: pointer;
 }
@@ -464,7 +497,7 @@ body.tv-with-bg-bar {
   padding: 0.6rem 1.6rem;
   border-radius: 999px;
   border: 1px solid var(--hairline);
-  background: #fff;
+  background: var(--card);
   color: var(--fg);
   font-weight: 600;
   font-size: 1.5rem;
@@ -592,7 +625,7 @@ body.lock {
   font: inherit;
   font-size: 1.6rem;
   border: 1px solid var(--hairline);
-  background: #fff;
+  background: var(--card);
   color: var(--fg);
   border-radius: 18px;
   aspect-ratio: 1;

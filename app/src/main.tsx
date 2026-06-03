@@ -2,7 +2,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { init } from "@noriginmedia/norigin-spatial-navigation";
+import { readDarkPref } from "./lib/useDarkMode";
 import "./styles.css";
+
+// Apply persisted dark mode before React paints, so there's no light flash.
+if (readDarkPref()) document.body.classList.add("dark");
 
 import { TvLayout } from "./components/TvLayout";
 import { Home } from "./pages/Home";
