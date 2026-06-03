@@ -121,7 +121,7 @@ body {
 .grid {
   display: grid;
   width: 100%;
-  gap: clamp(1.5rem, 3vw, 2.5rem);
+  gap: clamp(2.5rem, 4.5vw, 4rem);
   justify-content: center; /* center columns when content doesn't fill the row */
 }
 
