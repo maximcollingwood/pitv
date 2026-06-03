@@ -4,12 +4,9 @@ import { useFocusable } from "@noriginmedia/norigin-spatial-navigation";
 import { api, type BgState, type BgTrack } from "../lib/api";
 import { setCurrentEnter } from "../lib/remoteFocus";
 import { parseYouTube, loadYouTubeApi } from "../lib/youtube";
+import { isImmersiveRoute } from "../lib/immersive";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-// Hidden on the video player route — audio pauses there too so background and
-// foreground don't fight.
-const isPlayerRoute = (pathname: string) => pathname.startsWith("/play");
 
 function BgTile({
   focusKey,
@@ -42,7 +39,11 @@ function BgTile({
 export function BackgroundAudio() {
   const navigate = useNavigate();
   const location = useLocation();
-  const onPlayer = isPlayerRoute(location.pathname);
+  // Hide the bar on any immersive screen (player + lyrics). Only the *video*
+  // player should also pause playback — on lyrics we keep the music going so
+  // people can sing along.
+  const hideBar = isImmersiveRoute(location.pathname);
+  const pauseAudio = location.pathname.startsWith("/play");
 
   const [tracks, setTracks] = useState<BgTrack[]>([]);
   const [state, setState] = useState<BgState>({ trackId: null, playing: false });
@@ -51,11 +52,11 @@ export function BackgroundAudio() {
   const playerRef = useRef<any>(null);
   const currentVideoRef = useRef<string>("");
 
-  // Reserve top padding only when the bar is visible (i.e. not on the player).
+  // Reserve top padding only when the bar is visible.
   useEffect(() => {
-    document.body.classList.toggle("tv-with-bg-bar", !onPlayer);
+    document.body.classList.toggle("tv-with-bg-bar", !hideBar);
     return () => document.body.classList.remove("tv-with-bg-bar");
-  }, [onPlayer]);
+  }, [hideBar]);
 
   // Fetch tracks once.
   useEffect(() => {
@@ -115,7 +116,7 @@ export function BackgroundAudio() {
     if (!p || typeof p.loadVideoById !== "function") return;
     const track = tracks.find((t) => t.id === state.trackId);
     const videoId = track ? parseYouTube(track.youtube_url).id : "";
-    const wantPlay = state.playing && !onPlayer && Boolean(videoId);
+    const wantPlay = state.playing && !pauseAudio && Boolean(videoId);
 
     if (wantPlay) {
       if (videoId !== currentVideoRef.current) {
@@ -131,7 +132,7 @@ export function BackgroundAudio() {
         /* ignore */
       }
     }
-  }, [state, tracks, onPlayer]);
+  }, [state, tracks, pauseAudio]);
 
   function togglePlay() {
     if (state.trackId == null) {
@@ -148,7 +149,7 @@ export function BackgroundAudio() {
 
   return (
     <>
-      {!onPlayer && (
+      {!hideBar && (
         <div className="bg-bar">
           <span className="bg-bar__label">Background</span>
           <BgTile

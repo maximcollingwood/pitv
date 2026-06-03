@@ -758,11 +758,12 @@ body.lock {
 .lyrics {
   position: fixed;
   inset: 0;
-  background: var(--bg);
-  color: var(--fg);
+  background: #000;
+  color: #fff;
   cursor: none;
   padding: 1.5vmin 2vmin;
   overflow: hidden;
+  z-index: 100; /* above any leftover TV chrome */
 }
 
 .lyrics__cols {
@@ -771,7 +772,7 @@ body.lock {
   /* column-count + font-size are set dynamically by the fit algorithm. */
   column-gap: 4vmin;
   column-fill: auto;
-  column-rule: 1px solid var(--hairline);
+  column-rule: 1px solid rgba(255, 255, 255, 0.12);
   line-height: 1.22;
   font-weight: 600;
 }
