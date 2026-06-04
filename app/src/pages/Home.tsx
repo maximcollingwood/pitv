@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 import { useConfig } from "../lib/useConfig";
@@ -11,21 +11,122 @@ export function Home() {
   const { config, error } = useConfig();
   const [dark, setDark] = useDarkMode();
 
+  const hasHero = Boolean(config?.hero);
+  // When a hero is configured, Home becomes a two-panel slide: hero first,
+  // then navigation. Without a hero, jump straight to nav.
+  const [view, setView] = useState<"hero" | "nav">("hero");
+
+  // If hero gets removed or wasn't present, default to nav.
   useEffect(() => {
-    if (config && config.sections.length > 0) setFocus("nav-0");
-  }, [config]);
+    if (!hasHero) setView("nav");
+  }, [hasHero]);
+
+  // Focus management per view.
+  useEffect(() => {
+    if (!config) return;
+    if (hasHero && view === "hero") {
+      setFocus("hero-down");
+    } else if (config.sections.length > 0) {
+      setFocus("nav-0");
+    }
+  }, [config, view, hasHero]);
+
+  // D-pad down (or OK on the arrow) reveals nav; Back returns to hero.
+  useEffect(() => {
+    if (!hasHero) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (view === "hero" && e.key === "ArrowDown") {
+        e.preventDefault();
+        setView("nav");
+      } else if (view === "nav" && (e.key === "Escape" || e.key === "Backspace")) {
+        e.preventDefault();
+        setView("hero");
+      }
+    };
+    const onRemote = (e: Event) => {
+      const action = (e as CustomEvent<string>).detail;
+      if (view === "hero" && action === "down") setView("nav");
+      else if (view === "nav" && action === "back") setView("hero");
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pitv:remote", onRemote);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pitv:remote", onRemote);
+    };
+  }, [hasHero, view]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!config) return <div className="page"><p className="muted">Loading…</p></div>;
 
+  const navTiles = (
+    <Grid className="grid grid--nav">
+      {config.sections.map((section, i) => (
+        <Tile
+          key={section.id}
+          focusKey={`nav-${i}`}
+          className="tile--nav"
+          onEnter={() => navigate(`/s/${section.id}`)}
+        >
+          <span className="tile__label">{section.name}</span>
+        </Tile>
+      ))}
+    </Grid>
+  );
+
+  const darkToggle = (
+    <Grid className="grid grid--footer">
+      <Tile
+        focusKey="dark-toggle"
+        className="tile--toggle"
+        onEnter={() => setDark(!dark)}
+      >
+        {dark ? "Switch to light mode" : "Switch to dark mode"}
+      </Tile>
+    </Grid>
+  );
+
+  // ── Hero present: two-panel slide ────────────────────────────────────────
+  if (hasHero) {
+    return (
+      <div className="page page--home page--home-stack">
+        <div className={`home-stack${view === "nav" ? " home-stack--nav" : ""}`}>
+          <section className="home-panel home-panel--hero">
+            <div className="hero-image">
+              <img src={config.hero} alt="" />
+              <div className="hero-image__fade" />
+            </div>
+            <header className="hero">
+              <h1 className="hero__title">{config.title}</h1>
+              {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}
+            </header>
+            <Grid className="grid grid--center">
+              <Tile
+                focusKey="hero-down"
+                className="tile--down"
+                onEnter={() => setView("nav")}
+              >
+                ↓
+              </Tile>
+            </Grid>
+          </section>
+
+          <section className="home-panel home-panel--nav">
+            {config.sections.length === 0 ? (
+              <p className="muted">No sections configured yet.</p>
+            ) : (
+              navTiles
+            )}
+            {darkToggle}
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No hero: classic single-screen layout ────────────────────────────────
   return (
     <div className="page page--home">
-      {config.hero && (
-        <div className="hero-image">
-          <img src={config.hero} alt="" />
-          <div className="hero-image__fade" />
-        </div>
-      )}
       <header className="hero">
         <h1 className="hero__title">{config.title}</h1>
         {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}
@@ -34,29 +135,10 @@ export function Home() {
       {config.sections.length === 0 ? (
         <p className="muted">No sections configured yet. Add some from the editor.</p>
       ) : (
-        <Grid className="grid grid--nav">
-          {config.sections.map((section, i) => (
-            <Tile
-              key={section.id}
-              focusKey={`nav-${i}`}
-              className="tile--nav"
-              onEnter={() => navigate(`/s/${section.id}`)}
-            >
-              <span className="tile__label">{section.name}</span>
-            </Tile>
-          ))}
-        </Grid>
+        navTiles
       )}
 
-      <Grid className="grid grid--footer">
-        <Tile
-          focusKey="dark-toggle"
-          className="tile--toggle"
-          onEnter={() => setDark(!dark)}
-        >
-          {dark ? "Switch to light mode" : "Switch to dark mode"}
-        </Tile>
-      </Grid>
+      {darkToggle}
     </div>
   );
 }
