@@ -16,9 +16,10 @@ export function Home() {
   // then navigation. Without a hero, jump straight to nav.
   const [view, setView] = useState<"hero" | "nav">("hero");
 
-  // If hero gets removed or wasn't present, default to nav.
+  // Sync view to whether a hero exists: when config arrives with a hero, land
+  // on the hero panel; if there is no hero, just show nav.
   useEffect(() => {
-    if (!hasHero) setView("nav");
+    setView(hasHero ? "hero" : "nav");
   }, [hasHero]);
 
   // Focus management per view.
@@ -96,28 +97,32 @@ export function Home() {
               <img src={config.hero} alt="" />
               <div className="hero-image__fade" />
             </div>
-            <header className="hero">
-              <h1 className="hero__title">{config.title}</h1>
-              {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}
-            </header>
-            <Grid className="grid grid--center">
-              <Tile
-                focusKey="hero-down"
-                className="tile--down"
-                onEnter={() => setView("nav")}
-              >
-                ↓
-              </Tile>
-            </Grid>
+            <div className="home-panel__content">
+              <header className="hero">
+                <h1 className="hero__title">{config.title}</h1>
+                {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}
+              </header>
+              <Grid className="grid grid--center">
+                <Tile
+                  focusKey="hero-down"
+                  className="tile--down"
+                  onEnter={() => setView("nav")}
+                >
+                  ↓
+                </Tile>
+              </Grid>
+            </div>
           </section>
 
           <section className="home-panel home-panel--nav">
-            {config.sections.length === 0 ? (
-              <p className="muted">No sections configured yet.</p>
-            ) : (
-              navTiles
-            )}
-            {darkToggle}
+            <div className="home-panel__content">
+              {config.sections.length === 0 ? (
+                <p className="muted">No sections configured yet.</p>
+              ) : (
+                navTiles
+              )}
+              {darkToggle}
+            </div>
           </section>
         </div>
       </div>
