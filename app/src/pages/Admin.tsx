@@ -63,7 +63,8 @@ export function Admin() {
 
   const [view, setView] = useState<View>("home");
   const [sections, setSections] = useState<Section[]>([]);
-  const [settings, setSettings] = useState({ title: "", subtitle: "" });
+  const [settings, setSettings] = useState({ title: "", subtitle: "", hero: "" });
+  const [heroUploading, setHeroUploading] = useState(false);
 
   const [active, setActive] = useState<Section | null>(null); // content view
   const [items, setItems] = useState<Item[]>([]);
@@ -110,7 +111,13 @@ export function Admin() {
     loadSections();
     api
       .getSettings()
-      .then((s) => setSettings({ title: s.title ?? "", subtitle: s.subtitle ?? "" }))
+      .then((s) =>
+        setSettings({
+          title: s.title ?? "",
+          subtitle: s.subtitle ?? "",
+          hero: s.hero_image ?? "",
+        }),
+      )
       .catch(handleError);
   }, [token, loadSections, handleError]);
 
@@ -180,12 +187,55 @@ export function Admin() {
     setBusy(true);
     setError(null);
     try {
-      await api.saveSettings(settings);
+      // Only round-trip the form fields; hero is managed separately by upload/delete
+      // so it doesn't accidentally get clobbered or written under the wrong key.
+      await api.saveSettings({ title: settings.title, subtitle: settings.subtitle });
       setView("home");
     } catch (e) {
       handleError(e);
     } finally {
       setBusy(false);
+    }
+  }
+
+  // ── Hero image ────────────────────────────────────────────────────────────────
+  function onHeroFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setHeroUploading(true);
+    setError(null);
+    const reader = new FileReader();
+    reader.onerror = () => {
+      setHeroUploading(false);
+      setError("Could not read that file.");
+    };
+    reader.onload = async () => {
+      try {
+        const dataUrl = String(reader.result);
+        const comma = dataUrl.indexOf(",");
+        const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+        const mime =
+          /data:([^;]+);base64/.exec(dataUrl.slice(0, comma))?.[1] ?? file.type ?? "image/jpeg";
+        const { url } = await api.uploadHero(b64, mime);
+        setSettings((s) => ({ ...s, hero: url }));
+      } catch (err) {
+        handleError(err);
+      } finally {
+        setHeroUploading(false);
+        // Reset the input so the same file can be picked again later.
+        e.target.value = "";
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function removeHero() {
+    if (!confirm("Remove the hero image?")) return;
+    try {
+      await api.deleteHero();
+      setSettings((s) => ({ ...s, hero: "" }));
+    } catch (e) {
+      handleError(e);
     }
   }
 
@@ -460,6 +510,33 @@ export function Admin() {
               onChange={(e) => setSettings({ ...settings, subtitle: e.target.value })}
             />
           </label>
+
+          <div className="admin__field">
+            <span className="admin__field-label">Hero image (top of home screen)</span>
+            {settings.hero ? (
+              <div className="admin__hero-preview">
+                <img src={settings.hero} alt="Current hero" />
+                <button
+                  type="button"
+                  className="btn btn--small btn--danger"
+                  onClick={removeHero}
+                  disabled={heroUploading}
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <p className="muted">No hero image set.</p>
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              onChange={onHeroFile}
+              disabled={heroUploading}
+            />
+            {heroUploading && <p className="muted">Uploading…</p>}
+          </div>
+
           {error && <p className="admin__error">{error}</p>}
           <button type="submit" className="btn btn--primary" disabled={busy}>
             {busy ? "Saving…" : "Save"}

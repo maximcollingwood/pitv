@@ -20,6 +20,12 @@ export function Home() {
 
   return (
     <div className="page page--home">
+      {config.hero && (
+        <div className="hero-image">
+          <img src={config.hero} alt="" />
+          <div className="hero-image__fade" />
+        </div>
+      )}
       <header className="hero">
         <h1 className="hero__title">{config.title}</h1>
         {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}

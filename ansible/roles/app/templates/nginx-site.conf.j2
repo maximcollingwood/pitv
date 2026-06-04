@@ -6,11 +6,20 @@ server {
     root {{ app_root }}/dist;
     index index.html;
 
+    # Allow hero-image uploads (base64-encoded JSON ~= 1.33x raw bytes).
+    client_max_body_size 12M;
+
     # API requests go to the Fastify backend.
     location /api/ {
         proxy_pass http://127.0.0.1:{{ backend_port }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+    }
+
+    # Uploaded assets (hero image, etc.) served straight off disk.
+    location /uploads/ {
+        alias {{ db_dir }}/uploads/;
+        access_log off;
     }
 
     # SPA fallback: serve index.html for client-side routes.

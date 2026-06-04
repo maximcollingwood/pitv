@@ -12,6 +12,7 @@ export interface Config {
   title: string;
   subtitle: string;
   dark: boolean;
+  hero: string;
   sections: Section[];
 }
 
@@ -128,6 +129,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+
+  // ── Admin: hero image ───────────────────────────────────────────────────
+  uploadHero: (data: string, mime: string) =>
+    authFetch<{ url: string }>("/api/admin/hero", {
+      method: "POST",
+      body: JSON.stringify({ data, mime }),
+    }),
+  deleteHero: () => authFetch<{ ok: true }>("/api/admin/hero", { method: "DELETE" }),
 
   // ── Admin: sections ─────────────────────────────────────────────────────
   adminSections: () => authFetch<Section[]>("/api/admin/sections"),

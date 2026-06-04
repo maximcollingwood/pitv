@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
+import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import type { ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -17,7 +18,16 @@ const youtubeApiKey = process.env.YOUTUBE_API_KEY ?? "";
 const db = new Database(dbPath, { fileMustExist: true });
 db.pragma("journal_mode = WAL");
 
-const app = Fastify({ logger: true });
+const app = Fastify({
+  logger: true,
+  // Hero-image uploads come in as base64 in JSON; bump from the 1MB default.
+  bodyLimit: 12 * 1024 * 1024,
+});
+
+// Uploaded assets live next to the db so they share the same persistent
+// volume and ownership story. Nginx serves /uploads/ directly from here.
+const uploadsDir = process.env.UPLOADS_DIR ?? resolve(dirname(dbPath), "uploads");
+mkdirSync(uploadsDir, { recursive: true });
 
 app.log.info(
   { youtubeApiKeyConfigured: youtubeApiKey.length > 0 },
@@ -99,6 +109,7 @@ app.get("/api/config", async () => {
     title: settings.title ?? "",
     subtitle: settings.subtitle ?? "",
     dark: settings.dark_mode === "1",
+    hero: settings.hero_image ?? "",
     sections,
   };
 });
@@ -398,6 +409,52 @@ app.register(async (admin) => {
     );
     for (const [k, v] of Object.entries(req.body ?? {})) stmt.run(k, String(v));
     return getSettings();
+  });
+
+  // Hero image (full-width banner on the home screen). Stored as a file on
+  // disk, served by nginx from /uploads/. The base64 round-trip keeps the
+  // endpoint plain JSON (no @fastify/multipart dep).
+  function clearHeroFiles() {
+    try {
+      for (const f of readdirSync(uploadsDir)) {
+        if (f.startsWith("hero-")) {
+          try { unlinkSync(resolve(uploadsDir, f)); } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  admin.post<{ Body: { data?: string; mime?: string } }>(
+    "/api/admin/hero",
+    async (req, reply) => {
+      const data = req.body?.data;
+      if (!data) return reply.code(400).send({ error: "data required" });
+      const mime = (req.body?.mime ?? "").toLowerCase();
+      const ext =
+        mime.includes("png")  ? "png"  :
+        mime.includes("webp") ? "webp" :
+        mime.includes("gif")  ? "gif"  :
+                                "jpg";
+      const b64 = data.includes(",") ? data.split(",", 2)[1] : data;
+      let buf: Buffer;
+      try {
+        buf = Buffer.from(b64, "base64");
+      } catch {
+        return reply.code(400).send({ error: "invalid base64" });
+      }
+      clearHeroFiles();
+      const filename = `hero-${Date.now()}.${ext}`;
+      writeFileSync(resolve(uploadsDir, filename), buf);
+      const url = `/uploads/${filename}`;
+      settingsUpsert.run("hero_image", url);
+      return { url };
+    },
+  );
+
+  admin.delete("/api/admin/hero", async () => {
+    clearHeroFiles();
+    settingsUpsert.run("hero_image", "");
+    return { ok: true };
   });
 
   // Sections.
