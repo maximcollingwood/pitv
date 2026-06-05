@@ -32,6 +32,19 @@ export function Home() {
     }
   }, [config, view, hasHero]);
 
+  // Lock document scroll while the two-panel home is mounted. Otherwise the
+  // spatial-navigation library's scrollIntoView on the newly-focused nav tile
+  // scrolls the body and stacks on top of our transform, overshooting the panel.
+  useEffect(() => {
+    if (!hasHero) return;
+    document.documentElement.classList.add("home-stack-lock");
+    document.body.classList.add("home-stack-lock");
+    return () => {
+      document.documentElement.classList.remove("home-stack-lock");
+      document.body.classList.remove("home-stack-lock");
+    };
+  }, [hasHero]);
+
   // D-pad down (or OK on the arrow) reveals nav; Back returns to hero.
   useEffect(() => {
     if (!hasHero) return;
@@ -116,15 +129,17 @@ export function Home() {
 
           <section className="home-panel home-panel--nav">
             <div className="home-panel__content home-panel__content--top">
-              <header className="hero hero--compact">
+              <header className="hero">
                 <h1 className="hero__title">{config.title}</h1>
                 {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}
               </header>
-              {config.sections.length === 0 ? (
-                <p className="muted">No sections configured yet.</p>
-              ) : (
-                navTiles
-              )}
+              <div className="home-panel__fill">
+                {config.sections.length === 0 ? (
+                  <p className="muted">No sections configured yet.</p>
+                ) : (
+                  navTiles
+                )}
+              </div>
               {darkToggle}
             </div>
           </section>

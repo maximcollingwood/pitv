@@ -161,36 +161,49 @@ body::-webkit-scrollbar,
   gap: clamp(1.5rem, 3vh, 2.5rem);
 }
 
-/* Nav panel: anchor to the top so the title sits at the top of the page
-   and the nav grid drops in directly under it. Centering caused overflow
-   to bleed above the panel (clipping the top of the tiles). */
+/* Nav panel: anchor the title to the top, then a flexible fill area below
+   it vertically centers the nav grid in the remaining space. */
 .home-panel__content--top {
   justify-content: flex-start;
   padding-top: clamp(2rem, 5vh, 4rem);
-  gap: clamp(1.5rem, 3vh, 2.5rem);
+  gap: clamp(1rem, 2vh, 2rem);
 }
 
-/* Smaller hero block when reused at the top of the nav view, so it doesn't
-   eat the room the tiles need. */
-.hero--compact {
+.home-panel__fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Reduce the title's bottom margin only in the nav panel — the .home-panel__fill
+   gap handles the spacing now. */
+.home-panel--nav .hero {
   margin-bottom: 0;
 }
-.hero--compact .hero__title {
-  font-size: clamp(3rem, 7vw, 6rem);
-}
-.hero--compact .hero__subtitle {
-  font-size: clamp(1.4rem, 2.2vw, 2.2rem);
-  margin-top: 0.6rem;
-}
 
-/* In the nav panel, tighten the tile grid so two rows fit cleanly under the
-   title without overflowing the panel. */
+/* In the nav panel, tighten the tile grid so a couple of rows fit cleanly
+   below the full-size title without overflowing the panel. */
 .home-panel--nav .grid--nav {
   grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
   max-width: 1600px;
 }
 .home-panel--nav .tile--nav {
-  aspect-ratio: 2.2 / 1;
+  aspect-ratio: 2.4 / 1;
+  max-height: clamp(7rem, 18vh, 14rem);
+}
+
+/* Lock document scroll while the two-panel home is mounted. Prevents
+   spatial-navigation's scrollIntoView from shifting the body underneath
+   our slide transform (which manifested as overshooting past the navs). */
+html.home-stack-lock,
+body.home-stack-lock {
+  overflow: hidden;
+  height: 100%;
+  overscroll-behavior: none;
 }
 
 .hero-image img {
