@@ -115,7 +115,11 @@ export function Home() {
           </section>
 
           <section className="home-panel home-panel--nav">
-            <div className="home-panel__content">
+            <div className="home-panel__content home-panel__content--top">
+              <header className="hero hero--compact">
+                <h1 className="hero__title">{config.title}</h1>
+                {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}
+              </header>
               {config.sections.length === 0 ? (
                 <p className="muted">No sections configured yet.</p>
               ) : (
