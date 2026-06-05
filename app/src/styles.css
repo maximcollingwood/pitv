@@ -98,123 +98,43 @@ body::-webkit-scrollbar,
   text-align: center;
 }
 
-/* ── Two-panel Home (when a hero image is configured) ──────────────────────── */
-/* Custom property — referenced in both height math and the slide transform so
-   they stay in lockstep. Falls back to (100vh - bar) if it isn't overridden. */
+/* ── Home with hero image: single column, image collapses to reveal navs ─── */
+/* The page is one flex column: [hero-image][title][content][footer]. Switching
+   to the nav view animates the image's height to 0; the title above the content
+   then naturally moves up to the top of the page (same DOM node, no duplicate).
+   The content slot crossfades the down-arrow with the nav grid. */
 .page--home-stack {
-  --panel-h: calc(100vh - var(--visible-bar-h, 0px));
-  display: block;            /* override the flex layout from .page */
-  height: var(--panel-h);
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--visible-bar-h, 0px));
   min-height: 0;
   padding: 0;
   overflow: hidden;
-  position: relative;
 }
 
-.home-stack {
-  width: 100%;
-  height: calc(2 * var(--panel-h));   /* two panels stacked vertically */
-  transform: translateY(0);
-  transition: transform 600ms cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform;
-}
-
-.home-stack--nav {
-  transform: translateY(calc(-1 * var(--panel-h)));
-}
-
-.home-panel {
-  width: 100%;
-  height: var(--panel-h);
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-}
-
-/* Hero image is a paddingless full-width child; content (title + arrow) sits
-   in a separately-padded sibling. This avoids any horizontal full-bleed tricks. */
-.home-panel--hero {
-  padding: 0;
-}
-
-.hero-image {
+.home-hero-image {
+  flex: 0 0 auto;
   position: relative;
   width: 100%;
-  height: clamp(22vh, 32vw, 48vh);
-  flex-shrink: 0;
+  height: clamp(28vh, 36vw, 50vh);
   overflow: hidden;
+  transition:
+    height 600ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 400ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.home-panel--nav {
-  padding: 0;
+.page--home-stack.is-nav .home-hero-image {
+  height: 0;
+  opacity: 0;
 }
 
-.home-panel__content {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: clamp(2rem, 4vw, 4rem) clamp(2.5rem, 5vw, 5.5rem);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(1.5rem, 3vh, 2.5rem);
-}
-
-/* Nav panel: anchor the title to the top, then a flexible fill area below
-   it vertically centers the nav grid in the remaining space. */
-.home-panel__content--top {
-  justify-content: flex-start;
-  padding-top: clamp(2rem, 5vh, 4rem);
-  gap: clamp(1rem, 2vh, 2rem);
-}
-
-.home-panel__fill {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Reduce the title's bottom margin only in the nav panel — the .home-panel__fill
-   gap handles the spacing now. */
-.home-panel--nav .hero {
-  margin-bottom: 0;
-}
-
-/* In the nav panel, tighten the tile grid so a couple of rows fit cleanly
-   below the full-size title without overflowing the panel. */
-.home-panel--nav .grid--nav {
-  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
-  max-width: 1600px;
-}
-.home-panel--nav .tile--nav {
-  aspect-ratio: 2.4 / 1;
-  max-height: clamp(7rem, 18vh, 14rem);
-}
-
-/* Lock document scroll while the two-panel home is mounted. Prevents
-   spatial-navigation's scrollIntoView from shifting the body underneath
-   our slide transform (which manifested as overshooting past the navs). */
-html.home-stack-lock,
-body.home-stack-lock {
-  overflow: hidden;
-  height: 100%;
-  overscroll-behavior: none;
-}
-
-.hero-image img {
+.home-hero-image img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-/* Soft gradient into the page background — keeps text readable below the image
-   and hides any hard edge between the photo and the page. */
 .hero-image__fade {
   position: absolute;
   inset: 0;
@@ -225,6 +145,59 @@ body.home-stack-lock {
     var(--bg) 100%
   );
   pointer-events: none;
+}
+
+/* Title sits in flow, full size, padded horizontally. It moves up naturally as
+   the image above it collapses, and back down when the image grows again. */
+.page--home-stack > .hero {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0;
+  padding: clamp(1.5rem, 3vh, 3rem) clamp(2.5rem, 5vw, 5.5rem) 0;
+  text-align: center;
+}
+
+/* The content slot fills the remaining height. Both layers are absolutely
+   positioned inside it so they overlap and crossfade in place. */
+.home-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  width: 100%;
+  padding: clamp(1.5rem, 3vh, 3rem) clamp(2.5rem, 5vw, 5.5rem);
+  box-sizing: border-box;
+}
+
+.home-content__layer {
+  position: absolute;
+  inset: clamp(1.5rem, 3vh, 3rem) clamp(2.5rem, 5vw, 5.5rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.page--home-stack.is-hero .home-content__layer--hero { opacity: 1; pointer-events: auto; }
+.page--home-stack.is-hero .home-content__layer--nav  { opacity: 0; pointer-events: none; }
+.page--home-stack.is-nav  .home-content__layer--hero { opacity: 0; pointer-events: none; }
+.page--home-stack.is-nav  .home-content__layer--nav  { opacity: 1; pointer-events: auto; }
+
+.home-footer {
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 0 clamp(2.5rem, 5vw, 5.5rem) clamp(1.5rem, 3vh, 3rem);
+  display: flex;
+  justify-content: center;
+}
+
+/* Lock document scroll while the home page is mounted — defense against any
+   stray scrollIntoView from focus changes shifting the body. */
+html.home-stack-lock,
+body.home-stack-lock {
+  overflow: hidden;
+  height: 100%;
+  overscroll-behavior: none;
 }
 
 .hero {

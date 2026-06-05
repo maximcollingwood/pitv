@@ -100,50 +100,44 @@ export function Home() {
     </Grid>
   );
 
-  // ── Hero present: two-panel slide ────────────────────────────────────────
+  // ── Hero present: single column where the image collapses in nav view ──
+  // One title node; it visually moves to the top simply because the image
+  // above it shrinks to 0. The content slot crossfades arrow → nav grid.
   if (hasHero) {
     return (
-      <div className="page page--home page--home-stack">
-        <div className={`home-stack${view === "nav" ? " home-stack--nav" : ""}`}>
-          <section className="home-panel home-panel--hero">
-            <div className="hero-image">
-              <img src={config.hero} alt="" />
-              <div className="hero-image__fade" />
-            </div>
-            <div className="home-panel__content">
-              <header className="hero">
-                <h1 className="hero__title">{config.title}</h1>
-                {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}
-              </header>
-              <Grid className="grid grid--center">
-                <Tile
-                  focusKey="hero-down"
-                  className="tile--down"
-                  onEnter={() => setView("nav")}
-                >
-                  ↓
-                </Tile>
-              </Grid>
-            </div>
-          </section>
-
-          <section className="home-panel home-panel--nav">
-            <div className="home-panel__content home-panel__content--top">
-              <header className="hero">
-                <h1 className="hero__title">{config.title}</h1>
-                {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}
-              </header>
-              <div className="home-panel__fill">
-                {config.sections.length === 0 ? (
-                  <p className="muted">No sections configured yet.</p>
-                ) : (
-                  navTiles
-                )}
-              </div>
-              {darkToggle}
-            </div>
-          </section>
+      <div className={`page page--home page--home-stack ${view === "nav" ? "is-nav" : "is-hero"}`}>
+        <div className="home-hero-image">
+          <img src={config.hero} alt="" />
+          <div className="hero-image__fade" />
         </div>
+
+        <header className="hero">
+          <h1 className="hero__title">{config.title}</h1>
+          {config.subtitle && <p className="hero__subtitle">{config.subtitle}</p>}
+        </header>
+
+        <div className="home-content">
+          <div className="home-content__layer home-content__layer--hero">
+            <Grid className="grid grid--center">
+              <Tile
+                focusKey="hero-down"
+                className="tile--down"
+                onEnter={() => setView("nav")}
+              >
+                ↓
+              </Tile>
+            </Grid>
+          </div>
+          <div className="home-content__layer home-content__layer--nav">
+            {config.sections.length === 0 ? (
+              <p className="muted">No sections configured yet.</p>
+            ) : (
+              navTiles
+            )}
+          </div>
+        </div>
+
+        <div className="home-footer">{darkToggle}</div>
       </div>
     );
   }
