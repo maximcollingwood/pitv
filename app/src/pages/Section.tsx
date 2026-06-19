@@ -15,6 +15,8 @@ export function Section() {
   const section = config?.sections.find((s) => String(s.id) === id);
   const [items, setItems] = useState<Item[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // FAQ: which question's answer is shown in the right pane.
+  const [selectedFaq, setSelectedFaq] = useState<number | null>(null);
 
   useEffect(() => {
     api
@@ -32,6 +34,12 @@ export function Section() {
       setFocus(`item-${items[0].id}`);
     }
   }, [section, items]);
+
+  // Reset selection when the section changes; otherwise a stale id leaks
+  // through if the user navigates between two FAQ sections.
+  useEffect(() => {
+    setSelectedFaq(null);
+  }, [id]);
 
   if (!section) return <div className="page"><p className="muted">Loading…</p></div>;
 
@@ -93,6 +101,54 @@ export function Section() {
             </Tile>
           ))}
         </Grid>
+      )}
+
+      {section.type === "faq" && (
+        <div className="faq">
+          <Grid className="grid grid--list faq__questions">
+            {items.map((it) => (
+              <Tile
+                key={it.id}
+                focusKey={`item-${it.id}`}
+                className="tile--list tile--faq"
+                onEnter={() => setSelectedFaq(Number(it.id))}
+              >
+                <span className="tile__title">{String(it.question ?? "")}</span>
+              </Tile>
+            ))}
+          </Grid>
+          <aside className={`faq__pane ${selectedFaq != null ? "is-open" : ""}`}>
+            {(() => {
+              const sel = items.find((it) => Number(it.id) === selectedFaq);
+              if (!sel) {
+                return <p className="muted faq__hint">Select a question to see the answer.</p>;
+              }
+              return (
+                // Re-key on selection so the slide-in animation re-fires.
+                <div className="faq__answer" key={sel.id}>
+                  {sel.cover_url ? (
+                    <img
+                      className="faq__cover"
+                      src={String(sel.cover_url)}
+                      alt={String(sel.book_title ?? "")}
+                    />
+                  ) : null}
+                  <div className="faq__text">
+                    {sel.book_title ? (
+                      <h2 className="faq__book">{String(sel.book_title)}</h2>
+                    ) : null}
+                    {sel.quote ? (
+                      <blockquote className="faq__quote">{String(sel.quote)}</blockquote>
+                    ) : null}
+                    {sel.location ? (
+                      <p className="faq__location">{String(sel.location)}</p>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })()}
+          </aside>
+        </div>
       )}
     </div>
   );

@@ -99,32 +99,42 @@ body::-webkit-scrollbar,
 }
 
 /* ── Home with hero image: single column, image collapses to reveal navs ─── */
-/* The page is one flex column: [hero-image][title][content][footer]. Switching
-   to the nav view animates the image's height to 0; the title above the content
-   then naturally moves up to the top of the page (same DOM node, no duplicate).
-   The content slot crossfades the down-arrow with the nav grid. */
+/* The page is a flex column: [hero-image (absolute)][title][content][footer].
+   The hero image is taken OUT of flex flow (position: absolute at the top) so
+   title + content always occupy the full nav-state layout. Switching views
+   animates only compositor properties:
+     - hero image:  transform: scaleY() + opacity   (collapses from the top)
+     - title:       transform: translateY()         (slides up by image height)
+     - content:     transform: translateY()         (slides up by image height)
+   No layout/paint per frame — critical for smooth 60 fps on the Pi 4B. The
+   content slot crossfades the down-arrow and nav grid via opacity. */
 .page--home-stack {
+  --hero-image-h: clamp(28vh, 36vw, 50vh);
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--visible-bar-h, 0px));
   min-height: 0;
   padding: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .home-hero-image {
-  flex: 0 0 auto;
-  position: relative;
-  width: 100%;
-  height: clamp(28vh, 36vw, 50vh);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--hero-image-h);
   overflow: hidden;
+  transform-origin: top;
+  will-change: transform, opacity;
   transition:
-    height 600ms cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 400ms cubic-bezier(0.4, 0, 0.2, 1);
+    transform 450ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .page--home-stack.is-nav .home-hero-image {
-  height: 0;
+  transform: scaleY(0);
   opacity: 0;
 }
 
@@ -147,14 +157,22 @@ body::-webkit-scrollbar,
   pointer-events: none;
 }
 
-/* Title sits in flow, full size, padded horizontally. It moves up naturally as
-   the image above it collapses, and back down when the image grows again. */
+/* Title and content are translated DOWN by the image height in hero state, and
+   back to 0 in nav state. The page's overflow: hidden clips anything that
+   spills below the footer during the hero state. */
 .page--home-stack > .hero {
   flex: 0 0 auto;
   width: 100%;
   margin: 0;
   padding: clamp(1.5rem, 3vh, 3rem) clamp(2.5rem, 5vw, 5.5rem) 0;
   text-align: center;
+  transform: translateY(var(--hero-image-h));
+  will-change: transform;
+  transition: transform 450ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.page--home-stack.is-nav > .hero {
+  transform: translateY(0);
 }
 
 /* The content slot fills the remaining height. Both layers are absolutely
@@ -166,6 +184,13 @@ body::-webkit-scrollbar,
   width: 100%;
   padding: clamp(1.5rem, 3vh, 3rem) clamp(2.5rem, 5vw, 5.5rem);
   box-sizing: border-box;
+  transform: translateY(var(--hero-image-h));
+  will-change: transform;
+  transition: transform 450ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.page--home-stack.is-nav .home-content {
+  transform: translateY(0);
 }
 
 .home-content__layer {
@@ -175,6 +200,8 @@ body::-webkit-scrollbar,
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  transform: translateZ(0); /* own composite layer so opacity stays on the GPU */
+  will-change: opacity;
   transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -375,6 +402,101 @@ body.home-stack-lock {
   padding: 0.45rem 1.2rem;
   font-size: clamp(1.1rem, 1.6vw, 1.4rem);
   font-weight: 600;
+}
+
+/* ── FAQ section (split: questions on the left, answer slides in right) ──── */
+.faq {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: clamp(2rem, 4vw, 4rem);
+  width: 100%;
+  max-width: 1800px;
+  align-items: start;
+}
+
+.faq__pane {
+  /* Stay pinned so the answer remains visible while scrolling through a long
+     question list. The offset clears the persistent background-audio bar. */
+  position: sticky;
+  top: calc(var(--visible-bar-h, 0px) + 1.5rem);
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: clamp(2rem, 4vw, 3.5rem);
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden; /* clip the slide-in transform during animation */
+}
+
+.faq__hint {
+  text-align: center;
+  font-size: clamp(1.4rem, 2vw, 1.8rem);
+  margin: 0;
+}
+
+.faq__answer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: clamp(2rem, 3vw, 3rem);
+  align-items: start;
+  animation: faq-slide-in 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes faq-slide-in {
+  from { transform: translateX(48px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+.faq__cover {
+  width: clamp(160px, 18vw, 280px);
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  background: var(--hairline);
+}
+
+.faq__book {
+  margin: 0 0 1rem;
+  font-size: clamp(2rem, 3vw, 2.8rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.faq__quote {
+  margin: 0 0 1.4rem;
+  padding: 0 0 0 1.2rem;
+  border-left: 4px solid var(--gold);
+  font-size: clamp(1.6rem, 2.4vw, 2.2rem);
+  line-height: 1.5;
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.faq__location {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: clamp(1.2rem, 1.8vw, 1.5rem);
+}
+
+/* On narrow renderings the cover stacks above the text. */
+@media (max-width: 900px) {
+  .faq {
+    grid-template-columns: 1fr;
+  }
+  .faq__pane {
+    position: static;
+    min-height: 0;
+  }
+  .faq__answer {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
 }
 
 /* ── Article reader ────────────────────────────────────────────────────────── */
@@ -1022,6 +1144,24 @@ body.lock {
   object-fit: cover;
   border-radius: 12px;
   border: 1px solid var(--hairline);
+}
+
+/* Generic per-item image preview (FAQ book cover, etc). Same shape as the
+   hero preview but object-fit: contain so portrait book covers aren't cropped. */
+.admin__image-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.admin__image-preview img {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid var(--hairline);
+  background: var(--card);
 }
 
 .admin__item--tappable {

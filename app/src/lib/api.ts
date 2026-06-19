@@ -1,5 +1,5 @@
 // ── Types ───────────────────────────────────────────────────────────────────
-export type SectionType = "articles" | "lyrics" | "media" | "catalog";
+export type SectionType = "articles" | "lyrics" | "media" | "catalog" | "faq";
 
 export interface Section {
   id: number;
@@ -137,6 +137,14 @@ export const api = {
       body: JSON.stringify({ data, mime }),
     }),
   deleteHero: () => authFetch<{ ok: true }>("/api/admin/hero", { method: "DELETE" }),
+
+  // Per-item image upload (FAQ covers, etc.). The caller stores the returned
+  // URL on a row; the row's delete path on the server unlinks the file.
+  uploadImage: (tag: string, data: string, mime: string) =>
+    authFetch<{ url: string }>(`/api/admin/uploads/${encodeURIComponent(tag)}`, {
+      method: "POST",
+      body: JSON.stringify({ data, mime }),
+    }),
 
   // ── Admin: sections ─────────────────────────────────────────────────────
   adminSections: () => authFetch<Section[]>("/api/admin/sections"),

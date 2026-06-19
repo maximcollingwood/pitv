@@ -57,3 +57,22 @@
     PY
   args:
     creates: /usr/share/icons/blank/cursors/default
+
+# Hardware video decode + tear-free presentation both require the full KMS
+# driver (vc4-kms-v3d). Pi OS Bookworm ships with it enabled, but assert it
+# from config so a flashed image with the legacy fkms overlay still gets
+# corrected on the first ansible-pull. A reboot is required for it to take
+# effect — the playbook only logs that, it doesn't reboot.
+- name: Ensure full KMS graphics driver is enabled (Pi only)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: '^\s*dtoverlay=vc4-(f?kms)-v3d.*$'
+    line: 'dtoverlay=vc4-kms-v3d'
+    state: present
+  when: rpi_issue.stat.exists
+  register: kms_overlay
+
+- name: Note that a reboot is needed if the KMS overlay was changed
+  ansible.builtin.debug:
+    msg: "vc4-kms-v3d overlay updated in /boot/firmware/config.txt — reboot the pi for video decode + tear-free scanout to take effect."
+  when: rpi_issue.stat.exists and kms_overlay.changed

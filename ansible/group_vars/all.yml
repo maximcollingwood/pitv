@@ -70,3 +70,16 @@ chromium_flags:
   - "--fast-start"
   - "--check-for-update-interval=31536000"
   - "--autoplay-policy=no-user-gesture-required"   # let videos auto-start with sound
+  # Run on Wayland natively (skip Xwayland's extra blit / lost vsync — fixes
+  # the horizontal tearing during video playback on the pi).
+  - "--ozone-platform=wayland"
+  # GPU rasterization + zero-copy compositor path so frames go straight to the
+  # KMS scanout via EGL.
+  - "--use-gl=egl"
+  - "--enable-gpu-rasterization"
+  - "--enable-zero-copy"
+  # One --enable-features flag (Chromium merges multiple but last-wins is safer):
+  #   UseOzonePlatform                 — required to honor --ozone-platform=wayland
+  #   AcceleratedVideoDecodeLinuxV4L2  — Pi V4L2 H.264 hardware decode
+  #   V4L2FlatStatefulVideoDecoder     — the stateful path the Pi exposes
+  - "--enable-features=UseOzonePlatform,AcceleratedVideoDecodeLinuxV4L2,V4L2FlatStatefulVideoDecoder"

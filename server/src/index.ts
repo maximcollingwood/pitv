@@ -50,6 +50,11 @@ const SECTION_TYPES: Record<string, { table: string; columns: string[]; orderBy:
     columns: ["title", "author", "year", "category", "description"],
     orderBy: "title",
   },
+  faq: {
+    table: "faqs",
+    columns: ["question", "book_title", "quote", "location", "cover_url", "position"],
+    orderBy: "position, question",
+  },
 };
 
 interface Section {
@@ -411,6 +416,16 @@ app.register(async (admin) => {
     return getSettings();
   });
 
+  // Best-effort delete of a file previously written into uploadsDir via the
+  // upload endpoints. Confined to that directory by path-resolving the URL's
+  // basename so a stored value like "../../etc/passwd" can't escape.
+  function unlinkUpload(url: unknown) {
+    if (typeof url !== "string" || !url.startsWith("/uploads/")) return;
+    const name = url.slice("/uploads/".length);
+    if (!name || name.includes("/") || name.includes("\\")) return;
+    try { unlinkSync(resolve(uploadsDir, name)); } catch { /* ignore */ }
+  }
+
   // Hero image (full-width banner on the home screen). Stored as a file on
   // disk, served by nginx from /uploads/. The base64 round-trip keeps the
   // endpoint plain JSON (no @fastify/multipart dep).
@@ -457,6 +472,37 @@ app.register(async (admin) => {
     return { ok: true };
   });
 
+  // Generic per-item image upload. The hero endpoint above is hero-specific
+  // (one global slot, prior files cleared). This one is for item-owned images
+  // — the caller stores the returned URL on a row, and the row's delete path
+  // is responsible for unlinking the file again (see unlinkUpload below).
+  const UPLOAD_TAG_RE = /^[a-z0-9-]+$/;
+  admin.post<{ Params: { tag: string }; Body: { data?: string; mime?: string } }>(
+    "/api/admin/uploads/:tag",
+    async (req, reply) => {
+      const tag = req.params.tag;
+      if (!UPLOAD_TAG_RE.test(tag)) return reply.code(400).send({ error: "bad tag" });
+      const data = req.body?.data;
+      if (!data) return reply.code(400).send({ error: "data required" });
+      const mime = (req.body?.mime ?? "").toLowerCase();
+      const ext =
+        mime.includes("png")  ? "png"  :
+        mime.includes("webp") ? "webp" :
+        mime.includes("gif")  ? "gif"  :
+                                "jpg";
+      const b64 = data.includes(",") ? data.split(",", 2)[1] : data;
+      let buf: Buffer;
+      try {
+        buf = Buffer.from(b64, "base64");
+      } catch {
+        return reply.code(400).send({ error: "invalid base64" });
+      }
+      const filename = `${tag}-${Date.now()}.${ext}`;
+      writeFileSync(resolve(uploadsDir, filename), buf);
+      return { url: `/uploads/${filename}` };
+    },
+  );
+
   // Sections.
   admin.get("/api/admin/sections", async () =>
     db.prepare("SELECT * FROM sections ORDER BY position, id").all(),
@@ -493,7 +539,18 @@ app.register(async (admin) => {
     const section = getSection(req.params.id);
     if (section) {
       const cfg = SECTION_TYPES[section.type];
-      if (cfg) db.prepare(`DELETE FROM ${cfg.table} WHERE section_id = ?`).run(section.id);
+      if (cfg) {
+        // Reap any uploaded files owned by this section's rows before deleting
+        // them. Only the faq type has per-row uploads today; if more types
+        // grow them, extend this lookup table.
+        if (section.type === "faq") {
+          const rows = db
+            .prepare("SELECT cover_url FROM faqs WHERE section_id = ?")
+            .all(section.id) as { cover_url: string }[];
+          for (const r of rows) unlinkUpload(r.cover_url);
+        }
+        db.prepare(`DELETE FROM ${cfg.table} WHERE section_id = ?`).run(section.id);
+      }
       db.prepare("DELETE FROM sections WHERE id = ?").run(section.id);
     }
     return reply.code(204).send();
@@ -553,6 +610,14 @@ app.register(async (admin) => {
       if (!ctx) return reply.code(404).send({ error: "not found" });
       const body = req.body ?? {};
       const cols = ctx.cfg.columns.filter((c) => body[c] !== undefined);
+      // Capture the previous cover so a replacement upload doesn't orphan it.
+      let prevCover: string | undefined;
+      if (ctx.section.type === "faq" && body.cover_url !== undefined) {
+        const row = db
+          .prepare("SELECT cover_url FROM faqs WHERE id = ? AND section_id = ?")
+          .get(req.params.itemId, ctx.section.id) as { cover_url: string } | undefined;
+        prevCover = row?.cover_url;
+      }
       if (cols.length > 0) {
         const values = cols.map((c) => body[c] as never);
         db.prepare(
@@ -561,6 +626,7 @@ app.register(async (admin) => {
             .join(", ")} WHERE id = ? AND section_id = ?`,
         ).run(...values, req.params.itemId, ctx.section.id);
       }
+      if (prevCover && prevCover !== body.cover_url) unlinkUpload(prevCover);
       return db.prepare(`SELECT * FROM ${ctx.cfg.table} WHERE id = ?`).get(req.params.itemId);
     },
   );
@@ -569,6 +635,12 @@ app.register(async (admin) => {
     async (req, reply) => {
       const ctx = itemContext(req.params.id);
       if (!ctx) return reply.code(404).send({ error: "not found" });
+      if (ctx.section.type === "faq") {
+        const row = db
+          .prepare("SELECT cover_url FROM faqs WHERE id = ? AND section_id = ?")
+          .get(req.params.itemId, ctx.section.id) as { cover_url: string } | undefined;
+        if (row) unlinkUpload(row.cover_url);
+      }
       db.prepare(`DELETE FROM ${ctx.cfg.table} WHERE id = ? AND section_id = ?`).run(
         req.params.itemId,
         ctx.section.id,

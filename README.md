@@ -142,6 +142,8 @@ served by `GET /api/config`). Every section is an instance of a **preset type**:
   (full playlists with a YouTube Data API key on the device — else the keyless
   RSS feed, ~15 recent).
 - **Book catalog** — cards with author, year, category, summary.
+- **Book FAQs** — split view: questions on the left; selecting one slides in the
+  answer on the right (book title + quote + page reference + cover image).
 
 You can add any number of sections of any type (e.g. two video sections,
 "Kirtans" and "Lectures"), name and reorder them, and edit the title/subtitle —

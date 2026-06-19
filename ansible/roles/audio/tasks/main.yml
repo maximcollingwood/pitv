@@ -24,11 +24,14 @@
     - wireplumber.service
   changed_when: false
 
-# At boot, the kiosk's PipeWire starts before HDMI EDID is detected, so the
-# HDMI card profile defaults to "off" and the analog jack is picked. This
-# script (run as a user-session oneshot) waits a few seconds, forces HDMI
-# stereo on whichever HDMI port has the cable, makes it the default sink,
-# and maxes the volume. Works on either HDMI 0 or HDMI 1 — whichever is live.
+# The kiosk's PipeWire starts before HDMI EDID is detected at boot, so the
+# HDMI card profile defaults to "off" and the analog jack is picked. The same
+# thing happens whenever the TV is power-cycled or switches input: HDMI drops,
+# the sink disappears, and the default falls back to a dummy device — audio
+# silently dies until a Pi restart. The script forces HDMI stereo on whichever
+# HDMI port is live, makes it the default sink, and (only on the first run
+# after boot) initialises the volume. It's idempotent, so a timer below re-runs
+# it every 15s to re-assert the configuration whenever HDMI flaps.
 - name: Install kiosk audio setup script
   ansible.builtin.copy:
     dest: /usr/local/bin/kiosk-audio-setup.sh
@@ -37,24 +40,29 @@
     mode: "0755"
     content: |
       #!/bin/sh
-      # Configure HDMI as the default sink for the current user.
+      # Configure HDMI as the default sink for the current user. Safe to run
+      # repeatedly — every call is a no-op when HDMI is already the default.
       set -e
       export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 
-      # Wait for PipeWire + HDMI detection to settle.
-      sleep 6
-
       # Force HDMI stereo on whichever HDMI card accepts it (the connected one).
+      # During the first few seconds of boot pactl returns nothing — the loop
+      # is a no-op and the next timer tick catches up.
       for card in $(pactl list short cards | awk '/hdmi/{print $2}'); do
         pactl set-card-profile "$card" output:hdmi-stereo 2>/dev/null || true
       done
 
-      # Make the first HDMI sink the default. Volume defaults low (5%) so a
-      # freshly-booted device is never loud; the phone remote slider adjusts it.
+      # Make the first HDMI sink the default. Only seed the volume on the
+      # first run after boot so the periodic re-assertion doesn't stomp on
+      # whatever level the user set via the phone remote.
       hdmi_sink=$(pactl list short sinks | awk '/hdmi/{print $2; exit}')
       if [ -n "$hdmi_sink" ]; then
         pactl set-default-sink "$hdmi_sink" || true
-        wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.05 || true
+        stamp="$XDG_RUNTIME_DIR/kiosk-audio-volume-seeded"
+        if [ ! -e "$stamp" ]; then
+          wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.05 || true
+          : > "$stamp"
+        fi
       fi
 
 - name: Install kiosk audio setup user service
@@ -72,12 +80,37 @@
       Type=oneshot
       ExecStart=/usr/local/bin/kiosk-audio-setup.sh
 
-      [Install]
-      WantedBy=default.target
+# A user timer fires the setup every 15s so HDMI flaps (TV power-cycle, input
+# switch, EDID drop) self-heal without a Pi restart. OnBootSec=6 preserves the
+# original boot-time delay that lets PipeWire + HDMI settle on the first run.
+- name: Install kiosk audio setup user timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/user/kiosk-audio-setup.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Re-assert HDMI audio output for the kiosk
 
-- name: Enable kiosk audio setup user service globally
-  ansible.builtin.command: "systemctl --global enable kiosk-audio-setup.service"
+      [Timer]
+      OnBootSec=6s
+      OnUnitActiveSec=15s
+      Unit=kiosk-audio-setup.service
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Enable kiosk audio setup user timer globally
+  ansible.builtin.command: "systemctl --global enable kiosk-audio-setup.timer"
   changed_when: false
+
+# Old releases enabled the service directly via [Install]. The timer now drives
+# it, so disable any leftover wants to avoid a duplicate boot-time run.
+- name: Disable legacy kiosk audio setup service enable
+  ansible.builtin.command: "systemctl --global disable kiosk-audio-setup.service"
+  changed_when: false
+  failed_when: false
 
 # Volume-control wrapper: runs as root (via sudo) and switches to the kiosk
 # user with the right XDG_RUNTIME_DIR so wpctl can talk to its PipeWire. The

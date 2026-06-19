@@ -45,6 +45,21 @@ CREATE TABLE IF NOT EXISTS books (
   description TEXT
 );
 
+-- A book-catalog variant presented as FAQs: each row is a question whose
+-- answer is a quote attributed to a book, with the page (or other location)
+-- and a cover image. The TV renders this as a split layout — questions on
+-- the left, the selected answer sliding in on the right.
+CREATE TABLE IF NOT EXISTS faqs (
+  id          INTEGER PRIMARY KEY,
+  section_id  INTEGER NOT NULL,
+  question    TEXT NOT NULL,
+  book_title  TEXT NOT NULL DEFAULT '',
+  quote       TEXT NOT NULL DEFAULT '',
+  location    TEXT NOT NULL DEFAULT '',
+  cover_url   TEXT NOT NULL DEFAULT '',
+  position    INTEGER NOT NULL DEFAULT 0
+);
+
 -- Background audio (looping YouTube track). One global selection; state lives
 -- in `settings` (bg_track_id, bg_playing) so it persists across reboots.
 CREATE TABLE IF NOT EXISTS background_tracks (

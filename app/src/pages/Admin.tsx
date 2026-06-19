@@ -10,11 +10,13 @@ import {
   type Item,
 } from "../lib/api";
 
-type FieldType = "text" | "textarea" | "number" | "checkbox";
+type FieldType = "text" | "textarea" | "number" | "checkbox" | "image";
 interface Field {
   name: string;
   label: string;
   type: FieldType;
+  // For image fields: the upload tag used to namespace the file on disk.
+  uploadTag?: string;
 }
 
 const TYPE_LABEL: Record<SectionType, string> = {
@@ -22,6 +24,7 @@ const TYPE_LABEL: Record<SectionType, string> = {
   lyrics: "Song lyrics",
   media: "YouTube videos",
   catalog: "Book catalog",
+  faq: "Book FAQs",
 };
 
 const TYPE_FIELDS: Record<SectionType, Field[]> = {
@@ -45,6 +48,13 @@ const TYPE_FIELDS: Record<SectionType, Field[]> = {
     { name: "year", label: "Year written", type: "number" },
     { name: "category", label: "Category", type: "text" },
     { name: "description", label: "Summary", type: "textarea" },
+  ],
+  faq: [
+    { name: "question", label: "Question", type: "text" },
+    { name: "book_title", label: "Book title", type: "text" },
+    { name: "quote", label: "Quote", type: "textarea" },
+    { name: "location", label: "Location (e.g. page 42)", type: "text" },
+    { name: "cover_url", label: "Book cover", type: "image", uploadTag: "faq-cover" },
   ],
 };
 
@@ -75,6 +85,7 @@ export function Admin() {
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [imgUploading, setImgUploading] = useState(false);
 
   // Background-audio tracks (standalone, not tied to a section).
   const [bgTracks, setBgTracks] = useState<Item[]>([]);
@@ -331,6 +342,37 @@ export function Admin() {
     }
   }
 
+  function onItemImage(field: Field, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !draft) return;
+    setImgUploading(true);
+    setError(null);
+    const reader = new FileReader();
+    reader.onerror = () => {
+      setImgUploading(false);
+      setError("Could not read that file.");
+    };
+    reader.onload = async () => {
+      try {
+        const dataUrl = String(reader.result);
+        const comma = dataUrl.indexOf(",");
+        const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+        const mime =
+          /data:([^;]+);base64/.exec(dataUrl.slice(0, comma))?.[1] ?? file.type ?? "image/jpeg";
+        const { url } = await api.uploadImage(field.uploadTag ?? "image", b64, mime);
+        // The user may have cancelled or navigated; only apply if the draft
+        // we read from is still the one mounted.
+        setDraft((d) => (d ? { ...d, [field.name]: url } : d));
+      } catch (err) {
+        handleError(err);
+      } finally {
+        setImgUploading(false);
+        e.target.value = "";
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
   async function deleteItem(id: number) {
     if (!active || !confirm("Delete this item?")) return;
     try {
@@ -343,11 +385,13 @@ export function Admin() {
 
   async function moveItem(item: Item, dir: "up" | "down") {
     if (!active) return;
+    const labelOf = (x: Item) =>
+      String(active.type === "faq" ? (x.question ?? "") : (x.title ?? ""));
     const sorted = [...items].sort((a, b) => {
       const pa = Number(a.position ?? 0);
       const pb = Number(b.position ?? 0);
       if (pa !== pb) return pa - pb;
-      return String(a.title).localeCompare(String(b.title));
+      return labelOf(a).localeCompare(labelOf(b));
     });
     const idx = sorted.findIndex((x) => x.id === item.id);
     const swap = dir === "up" ? idx - 1 : idx + 1;
@@ -400,40 +444,68 @@ export function Admin() {
           <span />
         </header>
         <form className="admin__form" onSubmit={saveItem}>
-          {TYPE_FIELDS[active.type].map((f) => (
-            <label key={f.name} className={f.type === "checkbox" ? "admin__check" : ""}>
-              {f.type === "checkbox" ? (
-                <>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(draft[f.name])}
-                    onChange={(e) => setDraft({ ...draft, [f.name]: e.target.checked })}
-                  />
-                  {f.label}
-                </>
-              ) : f.type === "textarea" ? (
-                <>
-                  {f.label}
-                  <textarea
-                    rows={10}
-                    value={String(draft[f.name] ?? "")}
-                    onChange={(e) => setDraft({ ...draft, [f.name]: e.target.value })}
-                  />
-                </>
-              ) : (
-                <>
-                  {f.label}
-                  <input
-                    type={f.type === "number" ? "number" : "text"}
-                    value={String(draft[f.name] ?? "")}
-                    onChange={(e) => setDraft({ ...draft, [f.name]: e.target.value })}
-                  />
-                </>
-              )}
-            </label>
-          ))}
+          {TYPE_FIELDS[active.type].map((f) =>
+            f.type === "image" ? (
+              <div key={f.name} className="admin__field">
+                <span className="admin__field-label">{f.label}</span>
+                {draft[f.name] ? (
+                  <div className="admin__image-preview">
+                    <img src={String(draft[f.name])} alt="" />
+                    <button
+                      type="button"
+                      className="btn btn--small btn--danger"
+                      onClick={() => setDraft({ ...draft, [f.name]: "" })}
+                      disabled={imgUploading}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <p className="muted">No image set.</p>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => onItemImage(f, e)}
+                  disabled={imgUploading}
+                />
+                {imgUploading && <p className="muted">Uploading…</p>}
+              </div>
+            ) : (
+              <label key={f.name} className={f.type === "checkbox" ? "admin__check" : ""}>
+                {f.type === "checkbox" ? (
+                  <>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(draft[f.name])}
+                      onChange={(e) => setDraft({ ...draft, [f.name]: e.target.checked })}
+                    />
+                    {f.label}
+                  </>
+                ) : f.type === "textarea" ? (
+                  <>
+                    {f.label}
+                    <textarea
+                      rows={10}
+                      value={String(draft[f.name] ?? "")}
+                      onChange={(e) => setDraft({ ...draft, [f.name]: e.target.value })}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {f.label}
+                    <input
+                      type={f.type === "number" ? "number" : "text"}
+                      value={String(draft[f.name] ?? "")}
+                      onChange={(e) => setDraft({ ...draft, [f.name]: e.target.value })}
+                    />
+                  </>
+                )}
+              </label>
+            ),
+          )}
           {error && <p className="admin__error">{error}</p>}
-          <button type="submit" className="btn btn--primary" disabled={busy}>
+          <button type="submit" className="btn btn--primary" disabled={busy || imgUploading}>
             {busy ? "Saving…" : "Save"}
           </button>
         </form>
@@ -608,9 +680,13 @@ export function Admin() {
         <ul className="admin__list">
           {items.map((it) => (
             <li key={it.id} className="admin__item">
-              <span className="admin__item-title">{String(it.title)}</span>
+              <span className="admin__item-title">
+                {String(active.type === "faq" ? (it.question ?? "") : (it.title ?? ""))}
+              </span>
               <span className="admin__item-actions">
-                {(active.type === "articles" || active.type === "lyrics") && (
+                {(active.type === "articles" ||
+                  active.type === "lyrics" ||
+                  active.type === "faq") && (
                   <>
                     <button className="btn btn--small" onClick={() => moveItem(it, "up")}>↑</button>
                     <button className="btn btn--small" onClick={() => moveItem(it, "down")}>↓</button>
