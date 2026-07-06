@@ -1,0 +1,10 @@
+---
+# Pick up the newly-written hotplug reassert unit so udev can start it, and
+# load the new udev rule so future HDMI 'change' events fire it.
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Reload udev rules
+  ansible.builtin.command: udevadm control --reload
+  changed_when: false

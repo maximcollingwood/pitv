@@ -76,3 +76,28 @@
   ansible.builtin.debug:
     msg: "vc4-kms-v3d overlay updated in /boot/firmware/config.txt — reboot the pi for video decode + tear-free scanout to take effect."
   when: rpi_issue.stat.exists and kms_overlay.changed
+
+# Keep the HDMI connector (and therefore its ALSA audio device) present even
+# when the TV is off for a long time. Under full KMS, a long TV-off can fully
+# remove the DRM connector, taking the audio sink with it. Force-enabling the
+# connector on the kernel cmdline keeps it — and its audio device — alive at
+# all times, like a streaming stick that never "loses" the TV. The trailing
+# ':e' forces the connector enabled while still letting the TV's EDID pick the
+# mode when it's on, so we don't hardcode a resolution that could mismatch a TV.
+# cmdline.txt is a single space-separated line, so we append the token with
+# lineinfile (line-oriented, unlike replace, so it can't spill onto a phantom
+# second line). The negative lookahead makes it idempotent; '.+' avoids matching
+# an empty trailing line.
+- name: Force HDMI connector always-enabled so its audio device never disappears (Pi only)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/cmdline.txt
+    backrefs: true
+    regexp: '^(?!.*\bvideo=HDMI-A-1:)(.+)$'
+    line: '\1 video=HDMI-A-1:e'
+  when: rpi_issue.stat.exists
+  register: hdmi_cmdline
+
+- name: Note that a reboot is needed if the HDMI connector force was added
+  ansible.builtin.debug:
+    msg: "video=HDMI-A-1:e added to /boot/firmware/cmdline.txt — reboot the pi so the HDMI connector (and its audio device) stays present across TV-off periods."
+  when: rpi_issue.stat.exists and hdmi_cmdline.changed

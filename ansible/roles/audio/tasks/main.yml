@@ -28,10 +28,15 @@
 # HDMI card profile defaults to "off" and the analog jack is picked. The same
 # thing happens whenever the TV is power-cycled or switches input: HDMI drops,
 # the sink disappears, and the default falls back to a dummy device — audio
-# silently dies until a Pi restart. The script forces HDMI stereo on whichever
-# HDMI port is live, makes it the default sink, and (only on the first run
-# after boot) initialises the volume. It's idempotent, so a timer below re-runs
-# it every 15s to re-assert the configuration whenever HDMI flaps.
+# silently dies until a Pi restart. Worse, after a long *idle* (TV off for a
+# while) PipeWire suspends the HDMI sink and can fail to wake it, and any
+# long-lived stream — notably the persistent background-audio iframe — gets
+# stranded on the now-dead sink. Just re-asserting the *default* sink does not
+# fix either: it neither wakes a suspended sink nor re-homes an existing stream.
+# So the script forces HDMI stereo on whichever HDMI port is live, makes it the
+# default, un-suspends it, drags every active stream back onto it, and (only on
+# the first run after boot) initialises the volume. It's idempotent, so a timer
+# below re-runs it every 15s to keep audio healed whenever HDMI flaps or idles.
 - name: Install kiosk audio setup script
   ansible.builtin.copy:
     dest: /usr/local/bin/kiosk-audio-setup.sh
@@ -40,24 +45,38 @@
     mode: "0755"
     content: |
       #!/bin/sh
-      # Configure HDMI as the default sink for the current user. Safe to run
-      # repeatedly — every call is a no-op when HDMI is already the default.
-      set -e
+      # Configure HDMI as the default sink for the current user and keep it
+      # live. Safe to run repeatedly — every call is a no-op when HDMI is
+      # already the default and nothing is stranded. Deliberately no `set -e`:
+      # this is a self-healing script, so a transient pactl hiccup must never
+      # abort it before the un-suspend / re-home steps run — every call is
+      # guarded individually instead.
       export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 
       # Force HDMI stereo on whichever HDMI card accepts it (the connected one).
       # During the first few seconds of boot pactl returns nothing — the loop
       # is a no-op and the next timer tick catches up.
-      for card in $(pactl list short cards | awk '/hdmi/{print $2}'); do
+      for card in $(pactl list short cards 2>/dev/null | awk '/hdmi/{print $2}'); do
         pactl set-card-profile "$card" output:hdmi-stereo 2>/dev/null || true
       done
 
-      # Make the first HDMI sink the default. Only seed the volume on the
-      # first run after boot so the periodic re-assertion doesn't stomp on
-      # whatever level the user set via the phone remote.
-      hdmi_sink=$(pactl list short sinks | awk '/hdmi/{print $2; exit}')
+      # Make the first HDMI sink the default, then keep it usable after idle:
+      #   - un-suspend it, in case PipeWire idle-suspended it and can't wake it;
+      #   - drag every active stream onto it, so the long-lived background-audio
+      #     iframe (and any video) is reclaimed from a dead/null sink.
+      # This move step is what actually lets audio survive TV-off / idle periods
+      # without a restart — setting the default alone only affects new streams.
+      hdmi_sink=$(pactl list short sinks 2>/dev/null | awk '/hdmi/{print $2; exit}')
       if [ -n "$hdmi_sink" ]; then
-        pactl set-default-sink "$hdmi_sink" || true
+        pactl set-default-sink "$hdmi_sink" 2>/dev/null || true
+        pactl suspend-sink "$hdmi_sink" 0 2>/dev/null || true
+        for si in $(pactl list short sink-inputs 2>/dev/null | cut -f1); do
+          pactl move-sink-input "$si" "$hdmi_sink" 2>/dev/null || true
+        done
+
+        # Only seed the volume on the first run after boot so the periodic
+        # re-assertion doesn't stomp on whatever level the user set via the
+        # phone remote.
         stamp="$XDG_RUNTIME_DIR/kiosk-audio-volume-seeded"
         if [ ! -e "$stamp" ]; then
           wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.05 || true
@@ -111,6 +130,119 @@
   ansible.builtin.command: "systemctl --global disable kiosk-audio-setup.service"
   changed_when: false
   failed_when: false
+
+# Keep the HDMI sink "hot" like a streaming stick. Left to itself WirePlumber
+# idle-suspends the sink, and after a long idle (TV off for a while) it can fail
+# to wake — the root cause of "the TV sat unused, now there's no sound". A
+# drop-in sets the suspend timeout to 0 for the HDMI node so it never suspends.
+# WirePlumber 0.4 (Pi OS Bookworm) reads Lua drop-ins; 0.5+ reads SPA-JSON — we
+# detect which the installed version ships and write the matching file so a
+# WirePlumber upgrade doesn't silently drop this setting.
+- name: Detect WirePlumber config format (0.4 Lua vs 0.5 JSON)
+  ansible.builtin.stat:
+    path: /usr/share/wireplumber/main.lua.d
+  register: wp_lua_dir
+
+- name: Ensure WirePlumber Lua drop-in dir exists (0.4)
+  ansible.builtin.file:
+    path: /etc/wireplumber/main.lua.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: wp_lua_dir.stat.exists
+
+- name: Disable HDMI idle-suspend (WirePlumber 0.4 / Lua)
+  ansible.builtin.copy:
+    dest: /etc/wireplumber/main.lua.d/51-kiosk-disable-hdmi-suspend.lua
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      -- Managed by Ansible. Keep the HDMI sink hot so audio is always ready
+      -- after the TV / pi has sat idle: never idle-suspend the HDMI output.
+      alsa_monitor.rules = {
+        {
+          matches = {
+            { { "node.name", "matches", "alsa_output.*hdmi*" } },
+          },
+          apply_properties = {
+            ["session.suspend-timeout-seconds"] = 0,
+          },
+        },
+      }
+  when: wp_lua_dir.stat.exists
+
+- name: Ensure WirePlumber conf.d drop-in dir exists (0.5+)
+  ansible.builtin.file:
+    path: /etc/wireplumber/wireplumber.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not wp_lua_dir.stat.exists
+
+- name: Disable HDMI idle-suspend (WirePlumber 0.5+ / SPA-JSON)
+  ansible.builtin.copy:
+    dest: /etc/wireplumber/wireplumber.conf.d/51-kiosk-disable-hdmi-suspend.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible. Keep the HDMI sink hot so audio is always ready
+      # after the TV / pi has sat idle: never idle-suspend the HDMI output.
+      monitor.alsa.rules = [
+        {
+          matches = [
+            { node.name = "~alsa_output.*hdmi.*" }
+          ]
+          actions = {
+            update-props = {
+              session.suspend-timeout-seconds = 0
+            }
+          }
+        }
+      ]
+  when: not wp_lua_dir.stat.exists
+
+- name: Note that the WirePlumber suspend change needs a re-login / reboot
+  ansible.builtin.debug:
+    msg: >-
+      HDMI idle-suspend disabled — the kiosk session's WirePlumber picks it up
+      on the next reboot/re-login. The 15s audio timer keeps audio healed in
+      the meantime.
+
+# Recover instantly (rather than waiting up to 15s for the timer) the moment
+# HDMI hotplugs — e.g. the TV is switched back on. A udev 'change' on the DRM
+# subsystem starts a system oneshot that re-runs the setup as the kiosk user.
+# runuser gives us the kiosk user's PipeWire session (same trick the volume
+# wrapper below uses via sudo -u). The 15s timer stays as the polling backstop.
+- name: Install kiosk audio hotplug reassert service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/kiosk-audio-reassert.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Re-assert kiosk HDMI audio on HDMI hotplug
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/sbin/runuser -u {{ kiosk_user }} -- /usr/local/bin/kiosk-audio-setup.sh
+  notify: Reload systemd daemon
+
+- name: Re-assert HDMI audio on DRM (HDMI) hotplug
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-kiosk-hdmi.rules
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # On any DRM change (HDMI plug/unplug, TV power-on) re-assert HDMI audio
+      # immediately so sound is ready the instant the screen comes back.
+      SUBSYSTEM=="drm", ACTION=="change", RUN+="/usr/bin/systemctl --no-block start kiosk-audio-reassert.service"
+  notify: Reload udev rules
 
 # Volume-control wrapper: runs as root (via sudo) and switches to the kiosk
 # user with the right XDG_RUNTIME_DIR so wpctl can talk to its PipeWire. The

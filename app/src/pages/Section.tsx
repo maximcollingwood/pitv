@@ -44,7 +44,7 @@ export function Section() {
   if (!section) return <div className="page"><p className="muted">Loading…</p></div>;
 
   return (
-    <div className="page">
+    <div className={`page${section.type === "faq" ? " page--faq" : ""}`}>
       <header className="page__header">
         <h1 className="page__title">{section.name}</h1>
       </header>
