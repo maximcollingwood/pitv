@@ -433,7 +433,7 @@ test("video imports pick the best H.264 quality that fits the per-file limit", a
   try {
     media.prepare(URL, "video"); await media.tick();
     assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
-    assert.equal(format, "bv*[vcodec^=avc1][height<=1080][filesize<?90][filesize_approx<?90]+ba[ext=m4a]/b[vcodec^=avc1][ext=mp4][height<=1080][filesize<?90][filesize_approx<?90]");
+    assert.equal(format, "bv*[vcodec^=avc1][height<=1080][protocol^=http][filesize<?90][filesize_approx<?90]+ba[ext=m4a]/b[vcodec^=avc1][ext=mp4][height<=1080][protocol^=http][filesize<?90][filesize_approx<?90]/bv*[vcodec^=avc1][height<=480]+ba[ext=m4a]");
     media.prepare(`https://youtu.be/${VIDEO2}`, "video"); await media.tick();
     assert.match(media.get(`video-${VIDEO2}`)?.error ?? "", /fits the 0 MB per-file limit/);
   } finally { await media.close(); db.close(); temp.cleanup(); }

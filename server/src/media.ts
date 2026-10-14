@@ -316,11 +316,12 @@ export class MediaManager {
       if (row.kind === "audio") args.push("--format", "bestaudio[ext=m4a]/bestaudio/best", "--extract-audio", "--audio-format", "m4a");
       else {
         // Best H.264 quality that fits the per-file limit: a long talk too large at 1080p
-        // falls back to 720p or lower instead of failing. Unknown sizes pass ("<?") and
-        // --max-filesize still applies; the 10% margin leaves room for the audio track.
+        // falls back to 720p or lower instead of failing. Only HTTP (DASH/progressive)
+        // formats carry exact sizes; HLS sizes are unknown at selection time, so HLS is
+        // only a last resort at 480p. The 10% margin leaves room for the audio track.
         const budget = Math.floor(this.maxAssetBytes * 0.9);
-        const fits = `[filesize<?${budget}][filesize_approx<?${budget}]`;
-        args.push("--format", `bv*[vcodec^=avc1][height<=1080]${fits}+ba[ext=m4a]/b[vcodec^=avc1][ext=mp4][height<=1080]${fits}`, "--merge-output-format", "mp4");
+        const fits = `[protocol^=http][filesize<?${budget}][filesize_approx<?${budget}]`;
+        args.push("--format", `bv*[vcodec^=avc1][height<=1080]${fits}+ba[ext=m4a]/b[vcodec^=avc1][ext=mp4][height<=1080]${fits}/bv*[vcodec^=avc1][height<=480]+ba[ext=m4a]`, "--merge-output-format", "mp4");
       }
       args.push("--", row.source_url);
       let lastProgress = 0;
