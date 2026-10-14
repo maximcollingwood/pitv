@@ -1,20 +1,16 @@
 ---
-- name: Provision Raspberry Pi web kiosk
+- name: Provision PiTV native media appliance
   hosts: all
   become: true
   roles:
     - base
-    # Local app stack (frontend + API + DB). Toggle with kiosk_serve_local_app.
-    - role: nodejs
-      when: kiosk_serve_local_app
-    - role: database
-      when: kiosk_serve_local_app
-    - role: backend
-      when: kiosk_serve_local_app
-    - role: app
-      when: kiosk_serve_local_app
-    # Kiosk display layer.
+    - nodejs
+    - database
+    - media-tools
+    - backend
+    - app
     - kiosk-user
     - display
     - audio
+    - native
     - kiosk-service

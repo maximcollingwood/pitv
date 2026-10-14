@@ -6,5 +6,6 @@
 - name: Restart kiosk
   ansible.builtin.systemd:
     name: kiosk.service
+    daemon_reload: true
     state: restarted
   when: kiosk_start_compositor

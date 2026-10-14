@@ -1,28 +1,21 @@
-echo "=== deployed bundle ==="
-ls -la /opt/pitv-frontend/dist/assets/index-*.js | head
-echo
-echo "=== new useDarkMode signature present? ==="
-grep -o "setDarkAndPersist\|pitv_dark" /opt/pitv-frontend/dist/assets/index-*.js | sort | uniq -c
-echo
-echo "=== current pitv_dark writes (in time order) ==="
-sudo -u kiosk python3 - <<'PY'
-import os
-path = "/home/kiosk/.kiosk-profile/Default/Local Storage/leveldb"
-for f in sorted(os.listdir(path)):
-    full = os.path.join(path, f)
-    if not os.path.isfile(full): continue
-    try:
-        data = open(full, "rb").read()
-    except Exception as e:
-        print(f"{f}: cannot read ({e})"); continue
-    hits, i = [], 0
-    while True:
-        j = data.find(b"pitv_dark", i)
-        if j < 0: break
-        hits.append(j); i = j + 1
-    if not hits: continue
-    print(f"--- {f}: {len(hits)} total ---")
-    for h in hits[-6:]:
-        s, e = max(0, h-2), min(len(data), h+14)
-        print(repr(data[s:e]))
-PY
+#!/bin/sh
+# Read-only PiTV appliance diagnostics. No database changes or service restarts.
+printf '\nPiTV services\n'
+systemctl --no-pager status kiosk pitv-backend nginx || true
+printf '\nNative dependencies\n'
+command -v pitv-native
+gst-inspect-1.0 qml6glsink | head -n 14
+gst-inspect-1.0 pulsesink | head -n 14
+printf '\nLocal service and player status\n'
+curl --max-time 3 -fsS http://127.0.0.1:3000/api/health || true
+printf '\n'
+curl --max-time 3 -fsS http://127.0.0.1:3000/api/device/status || true
+printf '\nStorage\n'
+df -h /var/lib/pitv
+printf '\nRecent application logs\n'
+journalctl --no-pager -u kiosk -u pitv-backend -b -n 80
+printf '\nPi power and temperature (if available)\n'
+if command -v vcgencmd >/dev/null 2>&1; then
+  vcgencmd get_throttled
+  vcgencmd measure_temp
+fi

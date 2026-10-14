@@ -2,7 +2,7 @@
   "name": "pitv",
   "private": true,
   "version": "0.1.0",
-  "description": "Temple library kiosk app (frontend + API + SQLite)",
+  "description": "Native PiTV appliance, media service and phone companion",
   "workspaces": [
     "app",
     "server"
@@ -13,7 +13,11 @@
     "dev:api": "npm --workspace server run dev",
     "dev:web": "npm --workspace app run dev",
     "build": "npm --workspace server run build && npm --workspace app run build",
-    "typecheck": "npm --workspace app run typecheck"
+    "typecheck": "npm --workspace app run typecheck && npm --workspace server run build",
+    "test": "npm --workspace server test",
+    "native:configure": "cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release",
+    "native:build": "cmake --build native/build --parallel 2",
+    "native:test": "ctest --test-dir native/build --output-on-failure"
   },
   "devDependencies": {
     "concurrently": "^10.0.0"

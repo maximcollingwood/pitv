@@ -1,0 +1,42 @@
+{
+  "config": {
+    "title": "The Lotus Library",
+    "subtitle": "A space to learn, reflect, and find inspiration.",
+    "dark": true,
+    "hero": "",
+    "sections": [
+      {"id": 1, "type": "articles", "name": "Read & reflect"},
+      {"id": 2, "type": "lyrics", "name": "Songs of devotion"},
+      {"id": 3, "type": "media", "name": "Watch & listen"},
+      {"id": 4, "type": "catalog", "name": "Explore our books"},
+      {"id": 5, "type": "faq", "name": "Questions & answers"}
+    ]
+  },
+  "items": {
+    "1": [
+      {"id": 101, "title": "A moment of stillness", "body": "A quiet moment can change the rhythm of a day. Take a breath, settle into your surroundings, and let your attention rest on what is here.\n\nOur library brings together stories, music, and reflections for anyone who wants to pause and explore. There is no right place to begin. Follow your curiosity.\n\nLearning together\n\nIdeas become more meaningful when we share them. Read a passage with a friend, listen to a song, or ask a question. Each visit can reveal something new."},
+      {"id": 102, "title": "The practice of kindness", "body": "Small acts of care make a difference. Begin with the people around you."}
+    ],
+    "2": [
+      {"id": 201, "title": "A song for the morning", "body": "Let the morning light arrive\nLet a quiet hope revive\nIn the stillness we will find\nRoom for every heart and mind\n\nMay our words be kind and true\nMay our thoughts begin anew\nWith each step and each refrain\nLet compassion rise again\n\nहृदय में शांति का प्रकाश\nसबके जीवन में विश्वास\n\nLet the morning light arrive\nLet a quiet hope revive"},
+      {"id": 202, "title": "Together in peace", "body": "May we walk together\nMay we learn together\nMay we live in peace"}
+    ],
+    "3": [
+      {"id": 301, "title": "An introduction to meditation", "category": "General", "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk", "is_playlist": 0},
+      {"id": 302, "title": "Evening reflections", "category": "General", "youtube_url": "https://www.youtube.com/playlist?list=PLfixture123", "is_playlist": 1},
+      {"id": 303, "title": "Music for a quiet afternoon", "category": "Music", "youtube_url": "https://www.youtube.com/watch?v=lmnopqrstuv", "is_playlist": 0}
+    ],
+    "4": [{"id": 401, "title": "The art of a thoughtful life", "author": "The Library Collection", "year": 2024, "category": "Reflection", "description": "A collection of short reflections on kindness, attention, and everyday life.\n\nFind this book on the main library shelf. Ask a volunteer if you would like help choosing your next read."}],
+    "5": [
+      {"id": 501, "question": "Where can I begin?", "book_title": "A thoughtful life", "quote": "Begin with the moment in front of you. Listen carefully, act with care, and make room for someone else's experience.", "location": "Chapter 1 · Finding a beginning", "cover_url": ""},
+      {"id": 502, "question": "How can I learn more?", "book_title": "The library handbook", "quote": "Curiosity is a good companion. Explore the books, listen to a talk, or speak with one of our volunteers.", "location": "Page 12", "cover_url": ""}
+    ]
+  },
+  "background": {"tracks": [{"id": 601, "title": "Quiet morning", "youtube_url": "https://www.youtube.com/watch?v=123456789ab"}], "state": {"trackId": 601, "playing": false}},
+  "info": {"hostname": "pitv", "remoteUrl": "http://pitv.local/remote", "adminUrl": "http://pitv.local/admin"},
+  "volume": 0.15,
+  "_assets": {
+    "audio:https://www.youtube.com/watch?v=123456789ab": {"key": "audio-fixture", "sourceUrl": "https://www.youtube.com/watch?v=123456789ab", "kind": "audio", "status": "ready", "title": "Quiet morning", "playbackUrl": "/api/media/audio-fixture/file", "progress": 100, "error": null}
+  },
+  "_playlists": {"PLfixture123": {"status": "ready", "source": "cache", "videos": [{"id": "abcdefghijk", "title": "Reflection one"}, {"id": "lmnopqrstuv", "title": "Reflection two"}]}}
+}

@@ -1,5 +1,4 @@
--- Per-installation configurable model. Idempotent (IF NOT EXISTS); a one-time
--- reset (reset.sql) runs when the schema version is bumped.
+-- Additive, idempotent schema. Existing content is never reset on deployment.
 
 -- Global key/value config (title, subtitle, ...).
 CREATE TABLE IF NOT EXISTS settings (
@@ -67,4 +66,36 @@ CREATE TABLE IF NOT EXISTS background_tracks (
   title       TEXT NOT NULL,
   youtube_url TEXT NOT NULL DEFAULT '',
   position    INTEGER NOT NULL DEFAULT 0
+);
+
+-- Durable media work queue. Files are only public when status is ready.
+CREATE TABLE IF NOT EXISTS media_assets (
+  key TEXT PRIMARY KEY,
+  source_url TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('audio','video')),
+  status TEXT NOT NULL DEFAULT 'queued',
+  title TEXT NOT NULL DEFAULT '',
+  filename TEXT,
+  bytes INTEGER NOT NULL DEFAULT 0,
+  progress REAL NOT NULL DEFAULT 0,
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt INTEGER NOT NULL DEFAULT 0,
+  priority INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  accessed_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS media_assets_pending ON media_assets(status, next_attempt, created_at);
+CREATE TABLE IF NOT EXISTS media_playlists (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'queued',
+  title TEXT NOT NULL DEFAULT '',
+  videos TEXT NOT NULL DEFAULT '[]',
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt INTEGER NOT NULL DEFAULT 0,
+  priority INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
 );

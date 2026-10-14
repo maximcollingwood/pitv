@@ -1,182 +1,106 @@
-// ── Types ───────────────────────────────────────────────────────────────────
 export type SectionType = "articles" | "lyrics" | "media" | "catalog" | "faq";
-
-export interface Section {
-  id: number;
-  type: SectionType;
-  name: string;
-  position: number;
-}
-
-export interface Config {
-  title: string;
-  subtitle: string;
-  dark: boolean;
-  hero: string;
-  sections: Section[];
-}
-
-// Content rows vary by section type; callers know the shape from the type.
+export interface Section { id: number; type: SectionType; name: string; position: number }
+export interface Config { title: string; subtitle: string; dark: boolean; hero: string; sections: Section[] }
 export type Item = Record<string, unknown> & { id: number };
-
-export interface Info {
-  hostname: string;
-  remoteUrl: string;
-  adminUrl: string;
-}
-
-export interface BgTrack {
-  id: number;
+export interface BgTrack { id: number; title: string; youtube_url: string; position: number }
+export interface BgState { trackId: number | null; playing: boolean }
+export type RemoteAction = "up" | "down" | "left" | "right" | "select" | "back" | "home";
+export interface DeviceStatus {
+  connected: boolean;
+  updatedAt: number | string | null;
+  page: string;
   title: string;
-  youtube_url: string;
-  position: number;
-}
-
-export interface BgState {
-  trackId: number | null;
   playing: boolean;
+  position: number;
+  duration: number;
+  error: string | null;
 }
-
-export type RemoteAction = "up" | "down" | "left" | "right" | "select" | "back";
+export interface MediaAsset {
+  key: string;
+  sourceUrl: string;
+  kind: "audio" | "video";
+  status: "queued" | "downloading" | "ready" | "error";
+  title: string;
+  playbackUrl: string | null;
+  progress: number;
+  error: string | null;
+}
+export interface MediaPlaylist {
+  id: string;
+  title: string;
+  sourceUrl: string;
+  status: MediaAsset["status"];
+  error: string | null;
+  videoCount: number;
+}
+export interface MediaLibrary { assets: MediaAsset[]; playlists: MediaPlaylist[]; cacheBytes: number; cacheLimitBytes: number }
 
 export class ApiError extends Error {
-  status: number;
-  constructor(status: number) {
-    super(`HTTP ${status}`);
-    this.status = status;
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
   }
 }
+export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) return error.message;
+  return "Cannot reach the library. Check that your phone is on the same network and try again.";
+}
 
-// ── Token storage (phone CMS) ───────────────────────────────────────────────
 const TOKEN_KEY = "pitv_admin_token";
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
-export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
+export const setToken = (token: string) => localStorage.setItem(TOKEN_KEY, token);
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
-async function parse<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new ApiError(res.status);
-  return (res.status === 204 ? null : await res.json()) as T;
+async function request<T>(url: string, options: RequestInit = {}, authenticated = false): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (options.body) headers.set("content-type", "application/json");
+  if (authenticated) headers.set("Authorization", `Bearer ${getToken() ?? ""}`);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
+  const timeout = setTimeout(abort, 15000);
+  try {
+    const response = await fetch(url, { ...options, headers, signal: controller.signal });
+    const body = response.status === 204 ? null : await response.json().catch(() => null);
+    if (!response.ok) {
+      const fallback = response.status === 401 ? "Your PIN session has expired. Please unlock again."
+        : `The library could not complete this request (HTTP ${response.status}).`;
+      throw new ApiError(response.status, String(body?.message ?? body?.error ?? fallback));
+    }
+    return body as T;
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
+  }
 }
+const json = (method: string, data?: unknown): RequestInit => ({ method, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
 
-function authFetch<T>(url: string, opts: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${getToken() ?? ""}`,
-    ...((opts.headers as Record<string, string>) ?? {}),
-  };
-  if (opts.body) headers["content-type"] = "application/json";
-  return fetch(url, { ...opts, headers }).then((r) => parse<T>(r));
-}
-
-// ── API ─────────────────────────────────────────────────────────────────────
 export const api = {
-  info: () => fetch("/api/info").then((r) => parse<Info>(r)),
-  config: () => fetch("/api/config").then((r) => parse<Config>(r)),
-  sectionItems: (id: number | string) =>
-    fetch(`/api/sections/${id}/items`).then((r) => parse<Item[]>(r)),
-  playlist: (list: string) =>
-    fetch(`/api/playlist?list=${encodeURIComponent(list)}`).then((r) =>
-      parse<{ videos: { id: string; title: string }[]; source: "api" | "rss" }>(r),
-    ),
-
-  // Dark mode (open — same trust level as the remote).
-  setDark: (dark: boolean) =>
-    fetch("/api/dark-mode", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ dark }),
-    }).then((r) => parse<{ dark: boolean }>(r)),
-
-  // Background audio (open, no auth — same trust level as the remote).
-  backgroundTracks: () =>
-    fetch("/api/background/tracks").then((r) => parse<BgTrack[]>(r)),
-  backgroundState: () =>
-    fetch("/api/background/state").then((r) => parse<BgState>(r)),
-  setBackgroundState: (s: Partial<BgState>) =>
-    fetch("/api/background/state", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(s),
-    }).then((r) => parse<BgState>(r)),
-
-  // System volume (open, no auth).
-  getVolume: () => fetch("/api/system/volume").then((r) => parse<{ level: number }>(r)),
-  setVolume: (level: number) =>
-    fetch("/api/system/volume", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ level }),
-    }).then((r) => parse<{ level: number }>(r)),
-
-  // Fire-and-forget remote-control press (open, no auth).
-  press: (action: RemoteAction) =>
-    fetch("/api/remote/press", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action }),
-    }).catch(() => {}),
-
-  login: (pin: string) =>
-    fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pin }),
-    }).then((r) => parse<{ token: string }>(r)),
-
-  // ── Admin: settings ─────────────────────────────────────────────────────
-  getSettings: () => authFetch<Record<string, string>>("/api/admin/settings"),
-  saveSettings: (data: Record<string, string>) =>
-    authFetch<Record<string, string>>("/api/admin/settings", {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
-
-  // ── Admin: hero image ───────────────────────────────────────────────────
-  uploadHero: (data: string, mime: string) =>
-    authFetch<{ url: string }>("/api/admin/hero", {
-      method: "POST",
-      body: JSON.stringify({ data, mime }),
-    }),
-  deleteHero: () => authFetch<{ ok: true }>("/api/admin/hero", { method: "DELETE" }),
-
-  // Per-item image upload (FAQ covers, etc.). The caller stores the returned
-  // URL on a row; the row's delete path on the server unlinks the file.
-  uploadImage: (tag: string, data: string, mime: string) =>
-    authFetch<{ url: string }>(`/api/admin/uploads/${encodeURIComponent(tag)}`, {
-      method: "POST",
-      body: JSON.stringify({ data, mime }),
-    }),
-
-  // ── Admin: sections ─────────────────────────────────────────────────────
-  adminSections: () => authFetch<Section[]>("/api/admin/sections"),
-  createSection: (data: { type: SectionType; name: string }) =>
-    authFetch<Section>("/api/admin/sections", { method: "POST", body: JSON.stringify(data) }),
-  updateSection: (id: number, data: { name?: string; position?: number }) =>
-    authFetch<Section>(`/api/admin/sections/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  deleteSection: (id: number) =>
-    authFetch<null>(`/api/admin/sections/${id}`, { method: "DELETE" }),
-
-  // ── Admin: section content ──────────────────────────────────────────────
-  // Generic admin CRUD against any /api/admin/* resource root.
-  adminList: <T>(path: string) => authFetch<T[]>(path),
-  adminCreate: <T>(path: string, data: Record<string, unknown>) =>
-    authFetch<T>(path, { method: "POST", body: JSON.stringify(data) }),
-  adminUpdate: <T>(path: string, id: number, data: Record<string, unknown>) =>
-    authFetch<T>(`${path}/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  adminDelete: (path: string, id: number) =>
-    authFetch<null>(`${path}/${id}`, { method: "DELETE" }),
-
-  itemsList: (sectionId: number) =>
-    authFetch<Item[]>(`/api/admin/sections/${sectionId}/items`),
-  createItem: (sectionId: number, data: Record<string, unknown>) =>
-    authFetch<Item>(`/api/admin/sections/${sectionId}/items`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  updateItem: (sectionId: number, itemId: number, data: Record<string, unknown>) =>
-    authFetch<Item>(`/api/admin/sections/${sectionId}/items/${itemId}`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
-  deleteItem: (sectionId: number, itemId: number) =>
-    authFetch<null>(`/api/admin/sections/${sectionId}/items/${itemId}`, { method: "DELETE" }),
+  config: () => request<Config>("/api/config"),
+  deviceStatus: (signal?: AbortSignal) => request<DeviceStatus>("/api/device/status", { signal }),
+  setDark: (dark: boolean) => request<{ dark: boolean }>("/api/dark-mode", json("POST", { dark })),
+  backgroundTracks: () => request<BgTrack[]>("/api/background/tracks"),
+  backgroundState: () => request<BgState>("/api/background/state"),
+  setBackgroundState: (state: Partial<BgState>) => request<BgState>("/api/background/state", json("POST", state)),
+  getVolume: () => request<{ level: number }>("/api/system/volume"),
+  setVolume: (level: number) => request<{ level: number }>("/api/system/volume", json("POST", { level })),
+  press: (action: RemoteAction) => request<{ ok: boolean }>("/api/remote/press", json("POST", { action })),
+  login: (pin: string) => request<{ token: string }>("/api/admin/login", json("POST", { pin })),
+  getSettings: () => request<Record<string, string>>("/api/admin/settings", {}, true),
+  saveSettings: (data: Record<string, string>) => request<Record<string, string>>("/api/admin/settings", json("PUT", data), true),
+  uploadHero: (data: string, mime: string) => request<{ url: string }>("/api/admin/hero", json("POST", { data, mime }), true),
+  deleteHero: () => request<{ ok: true }>("/api/admin/hero", json("DELETE"), true),
+  uploadImage: (tag: string, data: string, mime: string) => request<{ url: string }>(`/api/admin/uploads/${encodeURIComponent(tag)}`, json("POST", { data, mime }), true),
+  adminSections: () => request<Section[]>("/api/admin/sections", {}, true),
+  createSection: (data: { type: SectionType; name: string }) => request<Section>("/api/admin/sections", json("POST", data), true),
+  updateSection: (id: number, data: { name?: string; position?: number }) => request<Section>(`/api/admin/sections/${id}`, json("PUT", data), true),
+  deleteSection: (id: number) => request<null>(`/api/admin/sections/${id}`, json("DELETE"), true),
+  adminList: (path: string) => request<Item[]>(path, {}, true),
+  adminCreate: (path: string, data: Record<string, unknown>) => request<Item>(path, json("POST", data), true),
+  adminUpdate: (path: string, id: number, data: Record<string, unknown>) => request<Item>(`${path}/${id}`, json("PUT", data), true),
+  adminDelete: (path: string, id: number) => request<null>(`${path}/${id}`, json("DELETE"), true),
+  media: () => request<MediaLibrary>("/api/admin/media", {}, true),
+  retryMedia: (key: string) => request<MediaAsset>(`/api/admin/media/${encodeURIComponent(key)}/retry`, json("POST"), true),
+  retryPlaylist: (id: string) => request<unknown>(`/api/playlist?list=${encodeURIComponent(id)}&retry=1`),
 };

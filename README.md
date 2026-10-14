@@ -1,195 +1,180 @@
-# pi-kiosk
+# PiTV
 
-A Raspberry Pi 4B configured as a locked-down web kiosk: boots straight into a
-fullscreen web app, auto-restarts the app if it crashes, and is otherwise
-stripped down — with a hotkey escape hatch to a terminal.
+A Raspberry Pi media appliance for shared reading, lyrics, video and background
+music. The TV runs a **native Qt Quick application with GStreamer playback**.
+Phones use a small web companion for remote control and PIN-protected editing.
 
-The device's configuration is **code, not a hand-tuned filesystem.** The repo
-holds an Ansible playbook; "updating the pi" means pulling this repo and
-re-applying it. The same playbook provisions a local dev VM, so the setup is
-reproducible across machines and safe for multiple developers to work on
-concurrently.
+Administrators paste YouTube links. The service discovers titles/playlists and
+prepares media in the background; ready files play from the Pi. Browsing content
+and playing cached media do not depend on an internet connection. New imports do.
 
-## How it works
+## Architecture
 
-| Concern              | Mechanism                                                        |
-|----------------------|-----------------------------------------------------------------|
-| Boot to app          | Raspberry Pi OS Lite → `labwc` (Wayland) → `chromium --kiosk`    |
-| Crash recovery       | `systemd` `Restart=always` (labwc) + app relaunch loop          |
-| Terminal escape hatch| labwc keybinding Ctrl+Alt+F2 → `chvt` to console · Ctrl+Alt+F1 → back |
-| Config in git        | Ansible playbook applied via `ansible-pull`                      |
-| Dev parity           | Vagrant VM provisioned by the **same** playbook (`ansible_local`)|
+- `native/`: C++/Qt 6 Quick television UI, local navigation, QR remote pairing,
+  cached content snapshot, GStreamer audio/video and playback recovery.
+- `server/`: Fastify/TypeScript API, SQLite content, persistent media queue,
+  yt-dlp imports, ranged local media serving and unbuffered live control events.
+- `app/`: React phone remote and editor. The browser no longer runs on the TV.
+- `db/`: additive database schema and initial content. Normal startup never resets
+  an existing library.
+- `ansible/`: installs the full appliance, including native build dependencies,
+  pinned importer, PipeWire, labwc, nginx and systemd services.
 
-## Repo layout
+All five section types remain: articles, song lyrics, YouTube videos/playlists,
+book catalog and book FAQs. Background tracks remain independent of sections.
+Foreground video pauses background music; lyrics keep it playing. Arrow keys,
+Enter, Escape/Backspace and the phone remote operate the TV.
 
-```
-Vagrantfile                 x86 Debian VM for dev parity
-bootstrap.sh                first-flash: install git+ansible, pull, apply
-package.json                npm workspaces + `npm run dev` orchestration
-app/                        React + Vite frontend (remote-navigable)
-server/                     Fastify API (TypeScript)
-db/                         schema.sql + seed.sql (SQLite catalog)
-ansible/
-  site.yml                  top-level play
-  ansible.cfg               inventory/roles defaults
-  inventory/localhost.yml   every target provisions itself locally
-  group_vars/all.yml        ← the file you edit most (URL, repo, paths)
-  roles/
-    base/                   apt, unattended-upgrades, git, ssh
-    nodejs/                 Node.js (NodeSource)
-    database/               sqlite3 + schema/seed, service user
-    backend/                Fastify API build + systemd service
-    app/                    frontend build + nginx (serves SPA, proxies /api)
-    kiosk-user/             dedicated locked-down kiosk user
-    display/                labwc + xwayland + chromium
-    audio/                  PipeWire + pipewire-pulse (Chromium audio backend)
-    kiosk-service/          systemd unit, labwc config, launch scripts, update-kiosk
+The integration API is documented in [docs/native-contract.md](docs/native-contract.md).
+
+## Develop the phone and service
+
+Requires Node.js 22.14 or newer (22 LTS recommended).
+
+```sh
+npm ci
+npm run dev
 ```
 
-## First time: set up the pi
+The API listens on `127.0.0.1:3000` (set `HOST` to expose it elsewhere); on the Pi,
+nginx is the only network entry point. Open `http://localhost:5173/remote` or `/admin`.
+The default development PIN is `0000`. Remote navigation becomes available when
+the native app sends its heartbeat. The web companion has no TV preview route.
 
-1. Edit `ansible/group_vars/all.yml`: set `kiosk_url` and `kiosk_repo_url`. Commit + push.
-2. Flash **Raspberry Pi OS Lite (64-bit)** with Raspberry Pi Imager. In the
-   imager's settings, set the hostname, enable SSH, and create your admin user.
-3. SSH into the pi and run:
-   ```sh
-   curl -fsSL https://raw.githubusercontent.com/maximcollingwood/pitv/main/bootstrap.sh \
-     | sh -s -- https://github.com/maximcollingwood/pitv.git main
-   sudo reboot
-   ```
-4. It boots straight into the web app.
+`npm run dev` initializes missing tables and seed content without deleting edits.
+Set `DB_PATH` to choose a separate SQLite database. Never use a production database
+for tests; automated tests create isolated temporary databases.
 
-## Updating the pi
+```sh
+npm run typecheck
+npm test
+npm run build
+```
 
-After pushing changes to the repo, on the pi:
+For actual media imports, install FFmpeg/ffprobe and `yt-dlp[default]`. The importer
+uses Node as its YouTube JavaScript challenge runtime. Set `YTDLP_PATH` when the
+executable is outside PATH. Metadata and content failures are visible in the
+editor's media preparation view; failed jobs can be retried there or on the TV.
+
+## Build the native application on Linux
+
+The baseline is Debian Bookworm / 64-bit Raspberry Pi OS with Qt 6.4 and
+GStreamer 1.22 or later. Install packages listed in
+`ansible/roles/native/tasks/main.yml`, or provision the development VM below.
+
+```sh
+cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build native/build --parallel 2
+ctest --test-dir native/build --output-on-failure
+PITV_API_URL=http://127.0.0.1:3000 ./native/build/pitv-native
+```
+
+Run the app in a graphical Linux session for video. It uses OpenGL and the
+GStreamer `qml6glsink` plugin; hardware decode depends on the installed driver,
+codec plugins and OS, not just a launch flag. Unit/UI smoke tests also run
+headlessly, without an HDMI display. The source includes a sample library fixture.
+
+The playback integration check generates a short test clip, renders it through
+Qt/GStreamer under Xvfb, and records a private PipeWire output to verify audio
+samples. It requires FFmpeg, Xvfb, PipeWire, WirePlumber, `pulseaudio-utils` and
+`dbus-run-session`, in addition to the native dependencies:
+
+```sh
+bash native/tests/verify-playback.sh native/build/pitv-native native-playback.png
+```
+
+This test uses software graphics and an isolated audio output. It does not measure
+Pi frame timing or validate a physical HDMI connection.
+
+On Windows, the existing Vagrant/VirtualBox workflow provides the Linux compiler:
+
+```sh
+vagrant up
+vagrant ssh
+```
+
+The VM exposes the companion at `http://localhost:8080`. It builds the native
+application but does not start the display service. A VM validates compilation,
+API behavior and offscreen UI loading, not Pi graphics performance or HDMI audio.
+
+## Install or update a Pi
+
+1. Flash 64-bit Raspberry Pi OS Lite, create an administrator account and enable SSH.
+2. Set `kiosk_repo_url` and `kiosk_repo_branch` in `ansible/group_vars/all.yml` to
+   the repository/ref containing this rewrite.
+3. Run the repository's `bootstrap.sh` with the same repository and branch, then reboot.
+
+For an existing installation, deploy only after the native build and tests pass:
 
 ```sh
 sudo update-kiosk
+sudo reboot
 ```
 
-This pulls the latest commit and re-applies the playbook idempotently. (An
-optional scheduled auto-pull timer ships **disabled** — enable it with
-`sudo systemctl enable --now kiosk-update.timer` if you want hands-off updates.)
+The playbook creates `/var/lib/pitv/pre-native-rewrite.db` once before migrating an
+existing database. SQLite's backup includes committed WAL data. Content, settings,
+uploads and the existing admin PIN are preserved. No schema-version reset runs.
+The native launcher replaces Chromium; its old profile is left available for recovery.
 
-## Developing on Windows / Linux
+- `kiosk.service`: labwc session and native application restart loop.
+- `pitv-backend.service`: API and managed importer worker.
+- nginx: phone companion, API proxy and uploaded images.
+- PipeWire/WirePlumber: HDMI output, hotplug recovery and no idle suspension.
 
-Requires [Vagrant](https://www.vagrantup.com/) + VirtualBox.
+The native application controls playback gain using the persisted volume setting.
+The hardware sink is kept at unity. Volume changes no longer run sudo or
+spawn a shell. Ctrl+Alt+F2 opens the login console; Ctrl+Alt+F1 returns to the TV.
+
+Change `ADMIN_PIN` in `/etc/kiosk/admin.env` and restart `pitv-backend`. An optional
+`/etc/kiosk/media.env` holds media configuration overrides. The old YouTube Data
+API key is no longer required. Keep device secrets outside Git.
+
+## Media preparation and storage
+
+The worker handles one job at a time, persists queue/retry state, validates completed
+files with ffprobe and exposes only completed media. Video selection requests
+H.264 at up to 1080p to suit the Pi 4. Audio tracks are prepared separately.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `MEDIA_CACHE_LIMIT_MB` | 4096 | Managed storage budget, including preparation space |
+| `MEDIA_MAX_ASSET_MB` | 512 | Maximum completed file size |
+| `MEDIA_QUEUE_LIMIT` | 200 | Pending job limit |
+| `MEDIA_PLAYLIST_PREFETCH` | 10 | Videos automatically prepared per playlist |
+| `MEDIA_MIN_FREE_MB` | 256 | Free disk space reserve |
+| `MEDIA_MAX_ATTEMPTS` | 3 | Automatic attempts before showing a retry action |
+| `MEDIA_JOB_TIMEOUT_MS` | 1800000 | Time limit per preparation job |
+
+Older cached media may be removed to make room; active/recent playback is protected.
+Selecting uncached media prepares it on demand. Playlist discovery is capped at
+500 entries, with metadata refreshed after six hours. Live/restricted/unavailable
+videos and files beyond the limits may fail preparation. Preparing a new item can
+take time; the UI reports its state rather than blocking navigation.
+
+Use media that can be stored locally. YouTube extraction remains an external
+integration that needs occasional updates. `yt_dlp_version` pins the importer
+independently; change that version and re-provision to update it. Existing ready
+media continues to work when new imports fail.
+
+## Verification on the Pi
+
+Before putting a rewritten installation into service, verify:
+
+- Boot with internet disconnected; browse cached content and play prepared media.
+- Navigate long lists and lyrics; measure frame timing and remote input latency.
+- Play representative 1080p H.264 clips and confirm the actual decoder in GStreamer logs.
+- Turn the TV off/on and switch HDMI inputs during playback; confirm sound recovers.
+- Interrupt an import, restart the backend, and confirm the queue recovers.
+- Edit content from a phone and confirm the native screen updates without restarting.
+
+Useful diagnostics:
 
 ```sh
-vagrant up          # provision the VM with the same playbook
-vagrant provision   # re-run after changes; second run should report no changes (idempotent)
-vagrant ssh         # poke around
+systemctl status kiosk pitv-backend nginx
+journalctl -u kiosk -u pitv-backend -b
+curl -s http://localhost/api/device/status
+vcgencmd get_throttled
 ```
 
-Because it provisions the **full app stack** (nginx + API + SQLite), you can
-browse it from your host at **http://localhost:8080** (forwarded from the VM),
-or check it over SSH:
-
-```sh
-vagrant ssh -c "systemctl is-active nginx pitv-backend; curl -s localhost/api/books | head -c 200"
-```
-
-> The VM validates the playbook, the **web app**, and the **API/database** end
-> to end. It does **not** run the on-screen compositor: `cage`/libseat needs a
-> real DRM graphics seat, which VirtualBox doesn't provide. The compositor layer
-> is verified on the actual pi, which has a real GPU and seat.
-
-## The kiosk app (architecture + local dev)
-
-The kiosk displays a library catalog app, self-hosted on the device:
-
-| Layer    | Tech                                  | On the pi                          |
-|----------|---------------------------------------|------------------------------------|
-| Frontend | React + Vite, spatial navigation      | built to `app/dist`, served by nginx |
-| Backend  | Fastify (TypeScript)                  | `pitv-backend.service` on port 3000 |
-| Database | SQLite (`db/schema.sql`, `db/seed.sql`) | `/var/lib/pitv/library.db`        |
-
-nginx serves the built frontend and reverse-proxies `/api` to the backend. The
-frontend is navigated with **arrow keys (D-pad), Enter (OK), and Back** so it's
-ready for a TV remote (the remote hardware → key mapping is a separate, later
-concern).
-
-### Local dev loop (just Node, no pi/VM)
-
-```sh
-npm install      # installs app + server workspaces
-npm run dev      # seeds a local SQLite DB, then runs API + Vite together
-```
-
-Open **http://localhost:5173** and navigate with your keyboard arrow keys +
-Enter (identical to the real remote). Vite proxies `/api` to the local Fastify
-server on :3000.
-
-> Commit `package-lock.json` files after your first `npm install` so every dev
-> and the pi resolve identical dependency versions.
-
-To point the kiosk at a remote app instead of this local stack, set
-`kiosk_serve_local_app: false` and change `kiosk_url`.
-
-### Phone as remote, and the content editor
-
-**Each installation is configured, not hardcoded.** The TV home renders a
-title/subtitle and a set of **sections** defined per device (stored in the DB,
-served by `GET /api/config`). Every section is an instance of a **preset type**:
-
-- **Articles** — list of titles → a reader.
-- **Song lyrics** — list of titles → a full-screen display: verses laid out in
-  newspaper-style columns (top-to-bottom, then next column) with the text
-  auto-sized as large as it can be while fitting the screen.
-- **YouTube videos** — browse by category → framed player (auto-starts; remote
-  **OK** = play/pause, **Left/Right** = seek ±10s, **Up/Down** = volume, via the
-  YouTube IFrame API). Playlist links drill into their individual videos first
-  (full playlists with a YouTube Data API key on the device — else the keyless
-  RSS feed, ~15 recent).
-- **Book catalog** — cards with author, year, category, summary.
-- **Book FAQs** — split view: questions on the left; selecting one slides in the
-  answer on the right (book title + quote + page reference + cover image).
-
-You can add any number of sections of any type (e.g. two video sections,
-"Kirtans" and "Lectures"), name and reorder them, and edit the title/subtitle —
-all from the phone. So the same image can be dropped into different places and
-set up for each one's purpose.
-
-- A **persistent QR badge** sits in the corner of every TV screen. Scanning it
-  opens an **open remote** (`http://<hostname>.local/remote`) — a touch D-pad
-  (▲▼◀▶ + OK + Back) that drives the on-screen navigation in real time. No app
-  needed: phone presses go to the backend and are relayed to the TV over SSE
-  (`POST /api/remote/press` → `GET /api/remote/events`). This is the bootstrap
-  control path — anyone can grab it without a hardware remote.
-- The remote page has an **Edit content →** link to the editor at `/admin`.
-- The editor is gated by a **shared 4-digit PIN**. The PIN lives only on the
-  device in `/etc/kiosk/admin.env` (never in git — the repo is public). It
-  defaults to `0000`; change it and restart the API:
-  ```sh
-  sudo sed -i 's/^ADMIN_PIN=.*/ADMIN_PIN=1234/' /etc/kiosk/admin.env
-  sudo systemctl restart pitv-backend
-  ```
-- Public read endpoints (`/api/articles`, `/api/books`) are open; writes
-  (`/api/admin/*`) require a token obtained by POSTing the PIN to
-  `/api/admin/login`.
-
-For **full playlists**, set a [YouTube Data API v3](https://console.cloud.google.com/apis/credentials)
-key on the device (also kept out of git):
-```sh
-echo 'YOUTUBE_API_KEY=YOUR_KEY' | sudo tee /etc/kiosk/youtube.env
-sudo systemctl restart pitv-backend
-```
-Without a key, playlists still work via the keyless RSS feed (~15 recent videos).
-
-## Customizing
-
-- **Change the displayed site:** `kiosk_url` in `ansible/group_vars/all.yml`.
-- **Chromium behavior:** the `chromium_flags` list in the same file.
-- **Secrets** (if the app needs credentials): use `ansible-vault`, never commit
-  plaintext. `*.vault` and `secrets.yml` are gitignored.
-
-## Verifying on the pi
-
-```sh
-systemctl status kiosk.service        # active (running) — this is labwc
-sudo pkill -f chromium                # kill the app...
-# ...the relaunch loop brings Chromium back within ~2s (labwc stays up)
-sudo pkill -f labwc                   # kill the compositor...
-systemctl status kiosk.service        # ...and systemd restarts it within ~2s
-```
-Ctrl+Alt+F2 should drop you to a login console; Ctrl+Alt+F1 returns to the kiosk.
+GitHub Actions builds/tests the service, companion and native app. Physical Pi
+performance and audio recovery require the hardware checks above.

@@ -1,0 +1,5 @@
+<RCC><qresource prefix="/">
+<file>qml/Main.qml</file>
+<file>qml/VideoSurface.qml</file>
+<file>qml/Pill.qml</file>
+</qresource></RCC>

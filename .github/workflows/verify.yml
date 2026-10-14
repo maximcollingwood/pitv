@@ -1,0 +1,35 @@
+name: Verify PiTV
+on: [push, pull_request]
+jobs:
+  companion-and-service:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+  native:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt and GStreamer
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          cmake ninja-build pkg-config g++ qt6-base-dev qt6-declarative-dev
+          qt6-shadertools-dev qml6-module-qtquick qml6-module-qtquick-window
+          qml6-module-qtqml-workerscript libgstreamer1.0-dev
+          libgstreamer-plugins-base1.0-dev gstreamer1.0-qt6 gstreamer1.0-gl
+          gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+          gstreamer1.0-plugins-bad gstreamer1.0-libav libqrencode-dev
+          pipewire pipewire-pulse wireplumber pulseaudio-utils dbus-x11
+          ffmpeg xvfb libgl1-mesa-dri fonts-noto-core
+      - run: cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build native/build --parallel 2
+      - run: ctest --test-dir native/build --output-on-failure
+      - name: Verify rendered video and audio delivery
+        run: bash native/tests/verify-playback.sh native/build/pitv-native native-playback.png

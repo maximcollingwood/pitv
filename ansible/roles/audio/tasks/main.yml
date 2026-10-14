@@ -1,13 +1,13 @@
 ---
-# Pi OS Lite ships no audio server, so Chromium has nothing to route sound to.
-# Install PipeWire + the PulseAudio compatibility layer (which is what Chromium
+# Pi OS Lite ships no audio server. Native GStreamer uses the PulseAudio API.
+# Install PipeWire + the PulseAudio compatibility layer (which is what the native player
 # talks to) + WirePlumber as the session manager. The kiosk user's PAM/login
 # session (PAMName=login) auto-starts the user-level PipeWire on next start.
 - name: Install PipeWire audio stack
   ansible.builtin.apt:
     name:
       - pipewire           # core audio server
-      - pipewire-pulse     # PulseAudio API shim — what Chromium uses
+      - pipewire-pulse     # PulseAudio API shim — used by GStreamer pulsesink
       - wireplumber        # PipeWire session manager (sink/source policy)
       - pipewire-alsa      # ALSA → PipeWire bridge for ALSA clients
       - alsa-utils         # aplay / speaker-test for diagnostics
@@ -30,12 +30,12 @@
 # the sink disappears, and the default falls back to a dummy device — audio
 # silently dies until a Pi restart. Worse, after a long *idle* (TV off for a
 # while) PipeWire suspends the HDMI sink and can fail to wake it, and any
-# long-lived stream — notably the persistent background-audio iframe — gets
+# long-lived stream, including native background audio — gets
 # stranded on the now-dead sink. Just re-asserting the *default* sink does not
 # fix either: it neither wakes a suspended sink nor re-homes an existing stream.
 # So the script forces HDMI stereo on whichever HDMI port is live, makes it the
-# default, un-suspends it, drags every active stream back onto it, and (only on
-# the first run after boot) initialises the volume. It's idempotent, so a timer
+# default, un-suspends it, drags every active stream back onto it, and maintains
+# hardware output at unity (the native player owns user volume). A timer
 # below re-runs it every 15s to keep audio healed whenever HDMI flaps or idles.
 - name: Install kiosk audio setup script
   ansible.builtin.copy:
@@ -63,25 +63,20 @@
       # Make the first HDMI sink the default, then keep it usable after idle:
       #   - un-suspend it, in case PipeWire idle-suspended it and can't wake it;
       #   - drag every active stream onto it, so the long-lived background-audio
-      #     iframe (and any video) is reclaimed from a dead/null sink.
+      #     pipeline (and any video) is reclaimed from a dead/null sink.
       # This move step is what actually lets audio survive TV-off / idle periods
       # without a restart — setting the default alone only affects new streams.
       hdmi_sink=$(pactl list short sinks 2>/dev/null | awk '/hdmi/{print $2; exit}')
       if [ -n "$hdmi_sink" ]; then
         pactl set-default-sink "$hdmi_sink" 2>/dev/null || true
         pactl suspend-sink "$hdmi_sink" 0 2>/dev/null || true
+        # Native gain owns the user volume, including mute. Reassert hardware
+        # output after every hotplug, including when a different sink appears.
+        pactl set-sink-volume "$hdmi_sink" 100% 2>/dev/null || true
+        pactl set-sink-mute "$hdmi_sink" 0 2>/dev/null || true
         for si in $(pactl list short sink-inputs 2>/dev/null | cut -f1); do
           pactl move-sink-input "$si" "$hdmi_sink" 2>/dev/null || true
         done
-
-        # Only seed the volume on the first run after boot so the periodic
-        # re-assertion doesn't stomp on whatever level the user set via the
-        # phone remote.
-        stamp="$XDG_RUNTIME_DIR/kiosk-audio-volume-seeded"
-        if [ ! -e "$stamp" ]; then
-          wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.05 || true
-          : > "$stamp"
-        fi
       fi
 
 - name: Install kiosk audio setup user service
@@ -215,8 +210,8 @@
 # Recover instantly (rather than waiting up to 15s for the timer) the moment
 # HDMI hotplugs — e.g. the TV is switched back on. A udev 'change' on the DRM
 # subsystem starts a system oneshot that re-runs the setup as the kiosk user.
-# runuser gives us the kiosk user's PipeWire session (same trick the volume
-# wrapper below uses via sudo -u). The 15s timer stays as the polling backstop.
+# runuser gives us the kiosk user's PipeWire session. The 15s timer stays as
+# the polling backstop.
 - name: Install kiosk audio hotplug reassert service
   ansible.builtin.copy:
     dest: /etc/systemd/system/kiosk-audio-reassert.service
@@ -244,46 +239,12 @@
       SUBSYSTEM=="drm", ACTION=="change", RUN+="/usr/bin/systemctl --no-block start kiosk-audio-reassert.service"
   notify: Reload udev rules
 
-# Volume-control wrapper: runs as root (via sudo) and switches to the kiosk
-# user with the right XDG_RUNTIME_DIR so wpctl can talk to its PipeWire. The
-# backend (which runs as the unprivileged 'pitv' user) calls this via sudo.
-- name: Install kiosk volume wrapper
-  ansible.builtin.copy:
-    dest: /usr/local/bin/kiosk-volume
-    owner: root
-    group: root
-    mode: "0755"
-    content: |
-      #!/bin/sh
-      # Get or set the kiosk user's default sink volume.
-      #   kiosk-volume          -> print current level (0..1)
-      #   kiosk-volume get      -> same
-      #   kiosk-volume <0..1>   -> set to that level
-      set -e
-      uid=$(id -u kiosk)
-      runtime="/run/user/$uid"
-      arg="${1:-get}"
-      case "$arg" in
-        get|GET)
-          sudo -u kiosk env XDG_RUNTIME_DIR="$runtime" /usr/bin/wpctl get-volume @DEFAULT_AUDIO_SINK@ \
-            | awk '{print $2}'
-          ;;
-        0|1|1.0|0.[0-9]|0.[0-9][0-9])
-          sudo -u kiosk env XDG_RUNTIME_DIR="$runtime" /usr/bin/wpctl set-volume @DEFAULT_AUDIO_SINK@ "$arg"
-          ;;
-        *)
-          echo "usage: kiosk-volume [get | <0..1>]" >&2
-          exit 2
-          ;;
-      esac
-
-- name: Allow the backend to call the volume wrapper without a password
-  ansible.builtin.copy:
-    dest: /etc/sudoers.d/kiosk-volume
-    owner: root
-    group: root
-    mode: "0440"
-    validate: "visudo -cf %s"
-    content: |
-      # The backend (pitv) controls system volume through this wrapper only.
-      {{ backend_user }} ALL=(root) NOPASSWD: /usr/local/bin/kiosk-volume
+# Volume is persisted by the API and applied as gain by the native player. The
+# hardware sink stays at unity; no process spawning or privileged volume helper.
+- name: Remove legacy web-player volume privileges and helper
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/sudoers.d/kiosk-volume
+    - /usr/local/bin/kiosk-volume

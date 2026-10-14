@@ -1,16 +1,12 @@
 #!/bin/sh
-# Managed by Ansible — edit the template, not this file.
-# Runs inside the labwc session (via autostart). Relaunches the browser if it
-# exits or crashes, so the app self-heals. labwc keeps running independently,
-# which keeps the console escape-hatch keybinding alive even if the app dies.
+# Managed by Ansible. The compositor survives native app restarts.
 set -u
-
+export PITV_API_URL="http://127.0.0.1:{{ backend_port }}"
+export QT_QPA_PLATFORM=wayland
+export QSG_RHI_BACKEND=opengl
+export QT_QUICK_CONTROLS_STYLE=Basic
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
 while true; do
-  {{ chromium_binary }} \
-{% for flag in chromium_flags %}
-    {{ flag }} \
-{% endfor %}
-    --user-data-dir="{{ kiosk_data_dir }}" \
-    "{{ kiosk_url }}"
+  /usr/local/bin/pitv-native
   sleep 2
 done

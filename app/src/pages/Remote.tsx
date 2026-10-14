@@ -1,154 +1,154 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type BgState, type BgTrack, type RemoteAction } from "../lib/api";
-
-function press(action: RemoteAction) {
-    api.press(action);
-    if (navigator.vibrate) navigator.vibrate(10); // brief haptic where supported
-}
-
-function BackgroundControl() {
-    const [tracks, setTracks] = useState<BgTrack[]>([]);
-    const [state, setState] = useState<BgState>({ trackId: null, playing: false });
-
-    // Brief optimistic spinner after a user action — the phone doesn't know
-    // when the TV's YT player has actually started, so we just give visual
-    // feedback for ~1.5s. If the request fails, we drop the spinner early.
-    const [pending, setPending] = useState(false);
-    const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    function startPending() {
-        setPending(true);
-        if (pendingTimer.current) clearTimeout(pendingTimer.current);
-        pendingTimer.current = setTimeout(() => setPending(false), 1500);
-    }
-    function clearPending() {
-        setPending(false);
-        if (pendingTimer.current) clearTimeout(pendingTimer.current);
-    }
-    useEffect(() => () => {
-        if (pendingTimer.current) clearTimeout(pendingTimer.current);
-    }, []);
-
-    useEffect(() => {
-        api.backgroundTracks().then(setTracks).catch(() => { });
-    }, []);
-
-    useEffect(() => {
-        const src = new EventSource("/api/background/events");
-        src.onmessage = (e) => {
-            try {
-                const msg = JSON.parse(e.data) as { tracks?: BgTrack[]; state?: BgState };
-                if (msg.tracks) setTracks(msg.tracks);
-                if (msg.state) setState(msg.state);
-            } catch {
-                /* ignore */
-            }
-        };
-        return () => src.close();
-    }, []);
-
-    const onPick = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const v = e.target.value;
-        const id = v === "" ? null : Number(v);
-        startPending();
-        api.setBackgroundState({ trackId: id, playing: id != null }).catch(clearPending);
-    };
-
-    const toggle = () => {
-        if (state.trackId == null) return;
-        startPending();
-        api.setBackgroundState({ playing: !state.playing }).catch(clearPending);
-    };
-
-    return (
-        <div className="bg-control">
-            <select
-                className="bg-control__select"
-                value={state.trackId ?? ""}
-                onChange={onPick}
-                aria-label="Background audio track"
-            >
-                <option value="">— Background audio —</option>
-                {tracks.map((t) => (
-                    <option key={t.id} value={t.id}>
-                        {t.title}
-                    </option>
-                ))}
-            </select>
-            <button
-                className="btn btn--small"
-                onClick={toggle}
-                disabled={state.trackId == null || pending}
-            >
-                {pending ? <span className="spinner" aria-label="Loading" /> : (state.playing ? "Pause" : "Play")}
-            </button>
-        </div>
-    );
-}
+import { Link } from "react-router-dom";
+import { DeviceStatusCard } from "../components/DeviceCard";
+import { api, errorMessage, type BgState, type BgTrack, type RemoteAction } from "../lib/api";
+import { useDeviceStatus } from "../lib/useDeviceStatus";
 
 export function Remote() {
-    // Lock the page against scrolling/bounce so it behaves like a native remote.
-    useEffect(() => {
-        document.documentElement.classList.add("lock");
-        document.body.classList.add("lock");
-        return () => {
-            document.documentElement.classList.remove("lock");
-            document.body.classList.remove("lock");
-        };
-    }, []);
+  const connection = useDeviceStatus();
+  const [error, setError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [tracks, setTracks] = useState<BgTrack[]>([]);
+  const [background, setBackground] = useState<BgState>({ trackId: null, playing: false });
+  const [volume, setVolume] = useState<number | null>(null);
+  const [live, setLive] = useState(false);
+  const [backgroundBusy, setBackgroundBusy] = useState(false);
+  const volumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const volumeRevision = useRef(0);
+  const volumeWriting = useRef(false);
+  const pendingVolume = useRef<number | null>(null);
+  const backgroundRevision = useRef(0);
+  const tracksRevision = useRef(0);
+  const mounted = useRef(false);
 
-    // System-volume slider — controls the pi's default sink directly.
-    const [vol, setVol] = useState<number | null>(null);
-    const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    useEffect(() => {
-        api
-            .getVolume()
-            .then((r) => setVol(r.level))
-            .catch(() => setVol(0));
-    }, []);
-
-    function onSlide(e: React.ChangeEvent<HTMLInputElement>) {
-        const v = Number(e.target.value) / 100;
-        setVol(v); // optimistic
-        if (sendTimer.current) clearTimeout(sendTimer.current);
-        sendTimer.current = setTimeout(() => {
-            api.setVolume(v).catch(() => { });
-        }, 200);
+  useEffect(() => {
+    mounted.current = true;
+    const stream = new EventSource("/api/device/events");
+    let active = true;
+    async function refresh() {
+      const revision = volumeRevision.current;
+      const soundRevision = backgroundRevision.current;
+      const trackRevision = ++tracksRevision.current;
+      try {
+        const [nextTracks, nextState, nextVolume] = await Promise.all([api.backgroundTracks(), api.backgroundState(), api.getVolume()]);
+        if (active) {
+          setSyncError(null);
+          if (trackRevision === tracksRevision.current) setTracks(nextTracks);
+          if (soundRevision === backgroundRevision.current) setBackground(nextState);
+          if (!volumeWriting.current && pendingVolume.current === null && revision === volumeRevision.current) setVolume(nextVolume.level);
+        }
+      } catch (failure) { if (active) setSyncError(errorMessage(failure)); }
     }
+    stream.onopen = () => { setLive(true); void refresh(); };
+    stream.onerror = () => setLive(false);
+    stream.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === "library") {
+          // Imports resolve track titles after the original save. Refresh only
+          // tracks here so a live volume adjustment is never overwritten.
+          const revision = ++tracksRevision.current;
+          void api.backgroundTracks().then((next) => { if (active && revision === tracksRevision.current) setTracks(next); }).catch((failure) => { if (active && revision === tracksRevision.current) setSyncError(errorMessage(failure)); });
+        }
+        if (message.type === "background") {
+          if (message.tracks) { tracksRevision.current++; setTracks(message.tracks); }
+          if (message.state) { backgroundRevision.current++; setBackground(message.state); }
+        }
+        if (message.type === "volume" && !volumeWriting.current && pendingVolume.current === null) { volumeRevision.current++; setVolume(message.level); }
+      } catch { /* Ignore incomplete or unknown event frames. */ }
+    };
+    void refresh();
+    return () => {
+      active = false;
+      mounted.current = false;
+      stream.close();
+      if (volumeTimer.current) clearTimeout(volumeTimer.current);
+      volumeTimer.current = null;
+      pendingVolume.current = null;
+    };
+  }, []);
 
-    const pct = vol == null ? 5 : Math.round(vol * 100);
+  async function press(action: RemoteAction) {
+    setError(null);
+    try {
+      await api.press(action);
+      navigator.vibrate?.(8);
+    } catch (failure) { setError(errorMessage(failure)); }
+  }
 
-    return (
-        <div className="remote">
-            <BackgroundControl />
+  async function changeBackground(next: Partial<BgState>) {
+    const revision = ++backgroundRevision.current;
+    setBackgroundBusy(true);
+    setError(null);
+    try {
+      const saved = await api.setBackgroundState(next);
+      if (revision === backgroundRevision.current) setBackground(saved);
+    }
+    catch (failure) { setError(errorMessage(failure)); }
+    finally { setBackgroundBusy(false); }
+  }
 
-            <div className="volume">
-                <span className="volume__label">Vol</span>
-                <input
-                    className="volume__slider"
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={pct}
-                    onChange={onSlide}
-                    aria-label="System volume"
-                />
-                <span className="volume__pct">{pct}%</span>
-            </div>
+  async function flushVolume() {
+    if (volumeWriting.current || pendingVolume.current === null || !mounted.current) return;
+    const level = pendingVolume.current;
+    const revision = volumeRevision.current;
+    pendingVolume.current = null;
+    volumeWriting.current = true;
+    try {
+      const saved = await api.setVolume(level);
+      if (mounted.current && revision === volumeRevision.current) { setVolume(saved.level); setError(null); }
+    } catch (failure) {
+      if (mounted.current && revision === volumeRevision.current) setError(errorMessage(failure));
+    } finally {
+      volumeWriting.current = false;
+      // One write at a time keeps delayed requests from restoring an older gain.
+      if (mounted.current && pendingVolume.current !== null) void flushVolume();
+    }
+  }
 
+  function changeVolume(level: number) {
+    setVolume(level);
+    volumeRevision.current++;
+    pendingVolume.current = level;
+    if (volumeTimer.current) clearTimeout(volumeTimer.current);
+    volumeTimer.current = setTimeout(() => { volumeTimer.current = null; void flushVolume(); }, 150);
+  }
 
-            <div className="dpad">
-                <button className="dpad__btn dpad__up" onClick={() => press("up")} aria-label="Up">▲</button>
-                <button className="dpad__btn dpad__left" onClick={() => press("left")} aria-label="Left">◀</button>
-                <button className="dpad__btn dpad__ok" onClick={() => press("select")}>OK</button>
-                <button className="dpad__btn dpad__right" onClick={() => press("right")} aria-label="Right">▶</button>
-                <button className="dpad__btn dpad__down" onClick={() => press("down")} aria-label="Down">▼</button>
-            </div>
-
-            <button className="btn remote__back" onClick={() => press("back")}>Back</button>
-
-            <a className="remote__edit" href="/admin">Edit content</a>
+  const disabled = !connection.status?.connected;
+  return <main className="shell remote-shell">
+    <header className="topbar">
+      <Link className="wordmark" to="/remote"><span className="brand-mark" aria-hidden="true">✦</span> PiTV <span>COMPANION</span></Link>
+      <Link className="text-link" to="/admin">Edit library <span aria-hidden="true">↗</span></Link>
+    </header>
+    <div className="page-intro"><p className="eyebrow">A little closer to your library</p><h1>Take a moment.<br /><em>Explore together.</em></h1></div>
+    <DeviceStatusCard connection={connection} />
+    {(error || syncError) && <p className="notice notice--error" role="alert">{error || syncError}<button className="text-link" onClick={() => { setError(null); setSyncError(null); }}>Dismiss</button></p>}
+    <section className="remote-controls" aria-label="TV navigation">
+      <div className="dpad">
+        <button className="dpad__up" disabled={disabled} onClick={() => void press("up")} aria-label="Move up">↑</button>
+        <button className="dpad__left" disabled={disabled} onClick={() => void press("left")} aria-label="Move left">←</button>
+        <button className="dpad__select" disabled={disabled} onClick={() => void press("select")} aria-label="Select highlighted item">Select</button>
+        <button className="dpad__right" disabled={disabled} onClick={() => void press("right")} aria-label="Move right">→</button>
+        <button className="dpad__down" disabled={disabled} onClick={() => void press("down")} aria-label="Move down">↓</button>
+      </div>
+      <div className="remote-shortcuts"><button className="btn" disabled={disabled} onClick={() => void press("back")}><span aria-hidden="true">↶</span> Back</button><button className="btn" disabled={disabled} onClick={() => void press("home")}><span aria-hidden="true">⌂</span> Home</button></div>
+    </section>
+    <section className="panel sound-panel" aria-labelledby="sound-title">
+      <div className="section-heading"><h2 id="sound-title">Set the atmosphere</h2><span className="eyebrow">SOUND</span></div>
+      <label className="volume-label" htmlFor="volume">Screen volume <output>{volume === null ? "—" : `${Math.round(volume * 100)}%`}</output></label>
+      <input id="volume" type="range" min="0" max="100" step="1" value={Math.round((volume ?? 0) * 100)} disabled={volume === null} onChange={(event) => changeVolume(Number(event.target.value) / 100)} />
+      <div className="background-picker">
+        <label htmlFor="background">Background audio</label>
+        <div className="inline-controls">
+          <select id="background" value={background.trackId ?? ""} disabled={backgroundBusy} onChange={(event) => void changeBackground({ trackId: event.target.value ? Number(event.target.value) : null, playing: Boolean(event.target.value) })}>
+            <option value="">No background audio</option>
+            {tracks.map((track) => <option key={track.id} value={track.id}>{track.title || "Preparing audio…"}</option>)}
+          </select>
+          <button className="btn" disabled={backgroundBusy || background.trackId === null} onClick={() => void changeBackground({ playing: !background.playing })}>{backgroundBusy ? "Saving…" : background.playing ? "Pause" : "Play"}</button>
         </div>
-    );
+        <p className="small muted">{live ? "Sound settings are shared with the screen." : "Reconnecting live updates…"}</p>
+      </div>
+    </section>
+    <footer className="page-footer">A space for reading, listening &amp; reflection.</footer>
+  </main>;
 }
