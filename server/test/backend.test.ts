@@ -400,6 +400,26 @@ test("library reconciliation refills when the queue drains and rewrites only cha
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
 
+test("download progress is published live without per-second database writes", async () => {
+  const temp = temporary();
+  const db = openDatabase(join(temp.path, "library.db"), false);
+  const published: number[] = [];
+  let stored: number | undefined;
+  const runner: ProcessRunner = async (command, args, options) => {
+    const output = await successfulRunner(command, args, options);
+    if (!args.includes("-show_entries")) stored = (db.prepare("SELECT progress FROM media_assets").get() as { progress: number }).progress;
+    return output;
+  };
+  const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0,
+    onEvent: event => { const asset = (event as { asset?: { status: string; progress: number } }).asset; if (asset?.status === "downloading") published.push(asset.progress); } });
+  try {
+    media.prepare(URL, "video"); await media.tick();
+    assert.ok(published.includes(50), "the extractor's progress reaches clients");
+    assert.equal(stored, 0, "progress is not written to the database while downloading");
+    assert.equal(media.get(`video-${VIDEO}`)?.progress, 100);
+  } finally { await media.close(); db.close(); temp.cleanup(); }
+});
+
 test("process runner aborts bounded subprocesses and does not launch an already cancelled job", async () => {
   const cancelled = new AbortController(); cancelled.abort();
   await assert.rejects(runProcess("does-not-exist", [], { signal: cancelled.signal }), /cancelled/);

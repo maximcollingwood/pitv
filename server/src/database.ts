@@ -9,6 +9,10 @@ export function openDatabase(path: string, seed = true) {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
+  // WAL commits without fsync; only checkpoints sync. Queries run on the event loop,
+  // and an fsync can stall for seconds while media downloads flush to the SD card.
+  // A power cut can lose the last commits but never corrupts the database.
+  db.pragma("synchronous = NORMAL");
   db.pragma("busy_timeout = 5000");
   db.transaction(() => {
     db.exec(readFileSync(resolve(schemaDirectory(), "schema.sql"), "utf8"));

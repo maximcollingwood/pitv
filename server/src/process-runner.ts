@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { setPriority } from "node:os";
 export type ProcessRunner = (command: string, args: string[], options: { signal: AbortSignal; onLine?: (line: string) => void }) => Promise<string>;
 
 // Argument arrays, no shell, bounded output, and one cancellation owner.
@@ -7,6 +8,9 @@ export const runProcess: ProcessRunner = (command, args, { signal, onLine }) => 
   // A separate Linux process group lets timeout/shutdown also stop ffmpeg children.
   const group = process.platform !== "win32";
   const child = spawn(command, args, { shell: false, windowsHide: true, detached: group, stdio: ["ignore", "pipe", "pipe"] });
+  // Imports are background work: yield the CPU to the TV interface and the API.
+  // ffmpeg children that yt-dlp starts later inherit the lower priority.
+  if (child.pid) try { setPriority(child.pid, 10); } catch { /* best effort */ }
   let output = "", errors = "", partial = "", done = false, tooLarge = false;
   let hardKill: NodeJS.Timeout | undefined;
   function kill(signal: NodeJS.Signals) {

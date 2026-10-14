@@ -2,10 +2,12 @@
 # Managed by Ansible. The compositor survives native app restarts.
 set -u
 export PITV_API_URL="http://127.0.0.1:{{ backend_port }}"
-export QT_QPA_PLATFORM=wayland
+# Run as an X11 client on labwc's Xwayland (DISPLAY comes from labwc).
+# Bookworm's qml6glsink (GStreamer 1.22, Qt 6.4) cannot attach to a Wayland
+# display, so video only renders through the X11/GLX path.
+export QT_QPA_PLATFORM=xcb
 export QSG_RHI_BACKEND=opengl
 export QT_QUICK_CONTROLS_STYLE=Basic
-export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
 while true; do
   /usr/local/bin/pitv-native
   sleep 2

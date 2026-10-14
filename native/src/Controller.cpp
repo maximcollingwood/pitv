@@ -30,6 +30,17 @@ Controller::Controller(QObject *parent) : QObject(parent) {
     connect(&refresh_, &QTimer::timeout, this, &Controller::fetchLibrary);
     watchdog_.setInterval(45000); watchdog_.setSingleShot(true);
     connect(&watchdog_, &QTimer::timeout, this, [this] { if (stream_) stream_->abort(); });
+    // Cache commits fsync, which can stall for seconds while downloads flush to
+    // the SD card, so they never run on the UI thread.
+    cacheWriter_ = new QObject;
+    cacheWriter_->moveToThread(&cacheThread_);
+    connect(&cacheThread_, &QThread::finished, cacheWriter_, &QObject::deleteLater);
+    cacheThread_.start();
+}
+Controller::~Controller() {
+    QMetaObject::invokeMethod(cacheWriter_, [] {}, Qt::BlockingQueuedConnection); // finish queued writes
+    cacheThread_.quit();
+    cacheThread_.wait();
 }
 QString Controller::remoteUrl() const {
     return library_.value("info").toObject().value("remoteUrl").toString("http://pitv.local/remote");
@@ -93,10 +104,17 @@ void Controller::applyLibrary(const QJsonObject &object) {
 }
 void Controller::saveCache() {
     if (fixture_) return;
-    QDir().mkpath(QFileInfo(cachePath_).absolutePath());
     auto object = library_; object.insert("_assets", cachedAssets_); object.insert("_playlists", playlists_);
-    QSaveFile file(cachePath_);
-    if (file.open(QIODevice::WriteOnly)) { file.write(QJsonDocument(object).toJson(QJsonDocument::Compact)); file.commit(); }
+    const auto bytes = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    if (bytes == cacheSaved_) return; // the periodic refresh usually changes nothing
+    cacheSaved_ = bytes;
+    const int generation = ++cacheGeneration_;
+    QMetaObject::invokeMethod(cacheWriter_, [this, generation, path = cachePath_, bytes] {
+        if (generation != cacheGeneration_) return; // superseded by a newer snapshot
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        QSaveFile file(path);
+        if (file.open(QIODevice::WriteOnly)) { file.write(bytes); file.commit(); }
+    }, Qt::QueuedConnection);
 }
 void Controller::connectEvents() {
     if (fixture_ || stream_) return;

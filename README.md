@@ -70,8 +70,10 @@ PITV_API_URL=http://127.0.0.1:3000 ./native/build/pitv-native
 ```
 
 Run the app in a graphical Linux session for video. It uses OpenGL and the
-GStreamer `qml6glsink` plugin; hardware decode depends on the installed driver,
-codec plugins and OS, not just a launch flag. Unit/UI smoke tests also run
+GStreamer `qml6glsink` plugin, which on Bookworm (GStreamer 1.22, Qt 6.4) only
+supports X11: run it with `QT_QPA_PLATFORM=xcb` (under Xwayland on a Wayland
+desktop). Hardware decode depends on the installed driver, codec plugins and OS,
+not just a launch flag; the Pi 4 uses `v4l2h264dec`. Unit/UI smoke tests also run
 headlessly, without an HDMI display. The source includes a sample library fixture.
 
 The playback integration check generates a short test clip, renders it through
@@ -116,7 +118,8 @@ existing database. SQLite's backup includes committed WAL data. Content, setting
 uploads and the existing admin PIN are preserved. No schema-version reset runs.
 The native launcher replaces Chromium; its old profile is left available for recovery.
 
-- `kiosk.service`: labwc session and native application restart loop.
+- `kiosk.service`: labwc session and native application restart loop (the app is
+  an X11 client on labwc's Xwayland).
 - `pitv-backend.service`: API and managed importer worker.
 - nginx: phone companion, API proxy and uploaded images.
 - PipeWire/WirePlumber: HDMI output, hotplug recovery and no idle suspension.

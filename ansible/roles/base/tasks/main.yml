@@ -37,3 +37,22 @@
     content: |
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
+
+# Media imports write hundreds of MB. With the default ratios (10%/20% of RAM)
+# the kernel buffers ~300 MB and then saturates the SD card for 10+ seconds,
+# stalling every fsync on the device. Small limits keep writeback continuous.
+- name: Bound dirty page cache for SD card writeback
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/90-pitv-writeback.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible.
+      vm.dirty_background_bytes = 8388608
+      vm.dirty_bytes = 33554432
+  register: writeback_sysctl
+
+- name: Apply writeback limits
+  ansible.builtin.command: sysctl -p /etc/sysctl.d/90-pitv-writeback.conf
+  when: writeback_sysctl.changed

@@ -51,6 +51,9 @@ export class MediaManager {
   private lastRefill = 0;
   private refillNeeded = false;
   private leases = new Map<string, number>();
+  // Live download percentages are only shown, never needed after a restart, so
+  // they stay in memory instead of costing a database write every second.
+  private progress = new Map<string, number>();
   constructor(private readonly db: Database.Database, options: MediaOptions) {
     this.cacheDir = resolve(options.cacheDir);
     this.cacheLimitBytes = options.cacheLimitBytes ?? envNumber("MEDIA_CACHE_LIMIT_MB", 4096) * 1024 * 1024;
@@ -93,7 +96,8 @@ export class MediaManager {
   private row(key: string) { return this.db.prepare("SELECT * FROM media_assets WHERE key=?").get(key) as AssetRow | undefined; }
   private toAsset(row: AssetRow): Asset {
     return { key: row.key, sourceUrl: row.source_url, kind: row.kind, status: row.status, title: row.title,
-      playbackUrl: row.status === "ready" ? `/api/media/${row.key}/file` : null, progress: row.progress, error: row.error };
+      playbackUrl: row.status === "ready" ? `/api/media/${row.key}/file` : null,
+      progress: row.status === "downloading" ? this.progress.get(row.key) ?? row.progress : row.progress, error: row.error };
   }
   get(key: string) { const row = this.row(key); return row && this.toAsset(row); }
   list() {
@@ -317,7 +321,7 @@ export class MediaManager {
         const match = /PITV_PROGRESS:\s*([\d.]+)%/.exec(line);
         if (!match || Date.now() - lastProgress < 1000) return;
         lastProgress = Date.now();
-        this.db.prepare("UPDATE media_assets SET progress=? WHERE key=?").run(Math.min(99, Number(match[1])), row.key); this.emit(row.key);
+        this.progress.set(row.key, Math.min(99, Number(match[1]))); this.emit(row.key);
       } });
       if (exceeded) throw new Error("Media exceeds the configured disk cache limit");
       if (signal.aborted) throw new Error("Media preparation cancelled or timed out");
@@ -336,7 +340,7 @@ export class MediaManager {
       this.db.prepare(`UPDATE ${table} SET title=? WHERE youtube_url=? AND (title='' OR title=youtube_url)`).run(metadata.title ?? "", row.source_url);
       this.onEvent({ type: "library" });
     } catch (error) { this.fail("media_assets", row.key, row.attempts + 1, exceeded ? new Error("Media preparation exceeded the disk/cache limit. Free disk space or increase the configured cache.") : error); }
-    finally { if (monitor) clearInterval(monitor); this.removeWorkDirectory(directory); this.emit(row.key); }
+    finally { if (monitor) clearInterval(monitor); this.progress.delete(row.key); this.removeWorkDirectory(directory); this.emit(row.key); }
   }
   file(key: string) {
     const row = this.row(key);

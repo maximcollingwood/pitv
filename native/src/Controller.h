@@ -4,8 +4,10 @@
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QPointer>
+#include <QThread>
 #include <QTimer>
 #include <QVariantList>
+#include <atomic>
 #include <functional>
 
 class QNetworkReply;
@@ -33,6 +35,7 @@ class Controller final : public QObject {
     Q_PROPERTY(double volume READ volume NOTIFY playbackChanged)
 public:
     explicit Controller(QObject *parent = nullptr);
+    ~Controller() override;
     QVariantMap config() const { return library_.value("config").toObject().toVariantMap(); }
     QVariantList entries() const { return entries_; }
     QVariantMap current() const { return current_; }
@@ -99,6 +102,10 @@ private:
     SseParser parser_;
     QTimer reconnect_, heartbeat_, poll_, refresh_, watchdog_;
     QString cachePath_, notice_, backgroundTitle_, backgroundSource_;
+    QThread cacheThread_;
+    QObject *cacheWriter_ = nullptr;
+    QByteArray cacheSaved_;
+    std::atomic<int> cacheGeneration_{0};
     bool connected_ = false, fixture_ = false, snapshotPending_ = false, snapshotAgain_ = false;
     bool playing_ = false, backgroundPlaying_ = false, backgroundDesired_ = false, playlistPending_ = false;
     int retryDelay_ = 1000, backgroundTrack_ = -1;

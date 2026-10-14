@@ -12,9 +12,12 @@
 
 # Raspberry Pi OS provides labwc; the plain Debian development VM does not
 # need a compositor because it runs the native renderer under Xvfb for tests.
+# The native app is an X11 client on labwc's Xwayland (see kiosk-app.sh).
 - name: Install kiosk compositor
   ansible.builtin.apt:
-    name: labwc
+    name:
+      - labwc
+      - xwayland
     state: present
   when: kiosk_start_compositor
 
