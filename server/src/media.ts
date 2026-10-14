@@ -314,15 +314,28 @@ export class MediaManager {
       }, 1000);
       const args = [...this.baseArgs(), "--no-playlist", "--max-filesize", String(this.maxAssetBytes), "--write-info-json", "--newline", "--progress", "--progress-template", "download:PITV_PROGRESS:%(progress._percent_str)s", "--output", join(directory, "payload.%(ext)s")];
       if (row.kind === "audio") args.push("--format", "bestaudio[ext=m4a]/bestaudio/best", "--extract-audio", "--audio-format", "m4a");
-      else args.push("--format", "bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[vcodec^=avc1][ext=mp4][height<=1080]", "--merge-output-format", "mp4");
+      else {
+        // Best H.264 quality that fits the per-file limit: a long talk too large at 1080p
+        // falls back to 720p or lower instead of failing. Unknown sizes pass ("<?") and
+        // --max-filesize still applies; the 10% margin leaves room for the audio track.
+        const budget = Math.floor(this.maxAssetBytes * 0.9);
+        const fits = `[filesize<?${budget}][filesize_approx<?${budget}]`;
+        args.push("--format", `bv*[vcodec^=avc1][height<=1080]${fits}+ba[ext=m4a]/b[vcodec^=avc1][ext=mp4][height<=1080]${fits}`, "--merge-output-format", "mp4");
+      }
       args.push("--", row.source_url);
       let lastProgress = 0;
-      await this.runner(this.ytdlp, args, { signal, onLine: line => {
-        const match = /PITV_PROGRESS:\s*([\d.]+)%/.exec(line);
-        if (!match || Date.now() - lastProgress < 1000) return;
-        lastProgress = Date.now();
-        this.progress.set(row.key, Math.min(99, Number(match[1]))); this.emit(row.key);
-      } });
+      try {
+        await this.runner(this.ytdlp, args, { signal, onLine: line => {
+          const match = /PITV_PROGRESS:\s*([\d.]+)%/.exec(line);
+          if (!match || Date.now() - lastProgress < 1000) return;
+          lastProgress = Date.now();
+          this.progress.set(row.key, Math.min(99, Number(match[1]))); this.emit(row.key);
+        } });
+      } catch (error) {
+        if (row.kind === "video" && /Requested format is not available/.test(String(error)))
+          throw new Error(`No H.264 version of this video fits the ${Math.round(this.maxAssetBytes / 1048576)} MB per-file limit (MEDIA_MAX_ASSET_MB).`);
+        throw error;
+      }
       if (exceeded) throw new Error("Media exceeds the configured disk cache limit");
       if (signal.aborted) throw new Error("Media preparation cancelled or timed out");
       const filename = readdirSync(directory).find(name => /^payload\.(mp4|m4a|webm|mkv|opus|mp3)$/.test(name));

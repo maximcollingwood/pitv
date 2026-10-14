@@ -420,6 +420,25 @@ test("download progress is published live without per-second database writes", a
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
 
+test("video imports pick the best H.264 quality that fits the per-file limit", async () => {
+  const temp = temporary();
+  const db = openDatabase(join(temp.path, "library.db"), false);
+  let format = "";
+  const runner: ProcessRunner = async (command, args, options) => {
+    if (args.includes("--format")) format = args[args.indexOf("--format") + 1];
+    if (args.includes(`https://www.youtube.com/watch?v=${VIDEO2}`)) throw new Error("ERROR: [youtube] aqz-KE-bpKQ: Requested format is not available. Use --list-formats for a list of available formats");
+    return successfulRunner(command, args, options);
+  };
+  const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner, maxAttempts: 1, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
+  try {
+    media.prepare(URL, "video"); await media.tick();
+    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
+    assert.equal(format, "bv*[vcodec^=avc1][height<=1080][filesize<?90][filesize_approx<?90]+ba[ext=m4a]/b[vcodec^=avc1][ext=mp4][height<=1080][filesize<?90][filesize_approx<?90]");
+    media.prepare(`https://youtu.be/${VIDEO2}`, "video"); await media.tick();
+    assert.match(media.get(`video-${VIDEO2}`)?.error ?? "", /fits the 0 MB per-file limit/);
+  } finally { await media.close(); db.close(); temp.cleanup(); }
+});
+
 test("process runner aborts bounded subprocesses and does not launch an already cancelled job", async () => {
   const cancelled = new AbortController(); cancelled.abort();
   await assert.rejects(runProcess("does-not-exist", [], { signal: cancelled.signal }), /cancelled/);
