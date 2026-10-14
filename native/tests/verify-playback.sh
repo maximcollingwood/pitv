@@ -67,11 +67,14 @@ PY
 mkdir -p "$(dirname "$screenshot")"
 # Capture the private sink's monitor to prove the audio stream carries samples,
 # rather than merely accepting a PLAYING transition from the media clock.
-parec --device=pitv_test.monitor --format=float32le --rate=48000 --channels=1 \
+# A short record latency makes the monitor deliver samples promptly; the default
+# buffering can still hold the whole playback when the player exits.
+parec --device=pitv_test.monitor --format=float32le --rate=48000 --channels=1 --latency-msec=50 \
   >"$test_dir/audio.f32" 2>"$test_dir/capture.log" & capture_pid=$!
 env -u QT_QUICK_BACKEND LIBGL_ALWAYS_SOFTWARE=1 QT_QPA_PLATFORM=xcb \
   xvfb-run -a -s '-screen 0 1600x900x24' "$binary" --verify-playback \
   --fixture "$test_dir/library.json" --route 2,0,0 --screenshot "$screenshot"
+sleep 1 # let the capture drain what the sink already rendered
 kill "$capture_pid" 2>/dev/null || true
 wait "$capture_pid" 2>/dev/null || true
 capture_pid=
