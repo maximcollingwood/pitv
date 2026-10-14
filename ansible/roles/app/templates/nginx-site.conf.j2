@@ -9,11 +9,22 @@ server {
     # Allow hero-image uploads (base64-encoded JSON ~= 1.33x raw bytes).
     client_max_body_size 12M;
 
+    # Native heartbeat writes bypass nginx and connect to localhost:3000.
+    # Do not let the proxy make a LAN client appear to be the native process.
+    location = /api/device/status {
+        limit_except GET { deny all; }
+        proxy_pass http://127.0.0.1:{{ backend_port }};
+        proxy_set_header Host $host;
+    }
+
     # API requests go to the Fastify backend.
     location /api/ {
         proxy_pass http://127.0.0.1:{{ backend_port }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
     }
 
     # Uploaded assets (hero image, etc.) served straight off disk.

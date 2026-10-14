@@ -1,0 +1,16 @@
+---
+- name: Install media preparation dependencies
+  ansible.builtin.apt:
+    name: [python3-venv, ffmpeg]
+    state: present
+
+- name: Create isolated media importer environment
+  ansible.builtin.command:
+    argv: [python3, -m, venv, "{{ media_tools_root }}"]
+    creates: "{{ media_tools_root }}/bin/python"
+
+- name: Install pinned YouTube importer with challenge runtime support
+  ansible.builtin.pip:
+    name: "yt-dlp[default]=={{ yt_dlp_version }}"
+    executable: "{{ media_tools_root }}/bin/pip"
+  notify: Restart backend

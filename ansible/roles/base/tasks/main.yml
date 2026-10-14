@@ -11,12 +11,20 @@
       - ca-certificates
       - unattended-upgrades
       - python3
+      - acl                # lets Ansible run database migrations as the service user
       - openssh-server
+      - avahi-daemon
     state: present
 
 - name: Enable and start SSH on boot
   ansible.builtin.systemd:
     name: ssh
+    enabled: true
+    state: started
+
+- name: Advertise the phone companion on the local network
+  ansible.builtin.systemd:
+    name: avahi-daemon
     enabled: true
     state: started
 

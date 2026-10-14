@@ -28,13 +28,11 @@
     force: false
   notify: Restart backend
 
-# Optional YouTube Data API key for full-playlist support (without it, playlists
-# fall back to the keyless RSS feed of ~15 recent videos). Lives only on the
-# device (never in git). Paste your key into /etc/kiosk/youtube.env and restart.
-- name: Create YouTube API key env file (if absent)
+# Optional device-local overrides; ordinary use only requires pasting a link.
+- name: Create media overrides env file (if absent)
   ansible.builtin.copy:
-    dest: /etc/kiosk/youtube.env
-    content: "YOUTUBE_API_KEY=\n"
+    dest: /etc/kiosk/media.env
+    content: "# Optional media worker environment overrides.\n"
     owner: root
     group: root
     mode: "0600"
@@ -43,17 +41,40 @@
 
 - name: Deploy backend source
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../server/"
-    dest: "{{ backend_root }}/"
+    src: "{{ playbook_dir }}/../server/{{ item }}"
+    dest: "{{ backend_root }}/{{ item }}"
     owner: "{{ backend_user }}"
     group: "{{ backend_user }}"
     mode: preserve
+  loop: [src/, package.json, tsconfig.json]
   notify: Restart backend
 
-- name: Install backend dependencies
+- name: Deploy locked npm workspace manifest
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../{{ item }}"
+    dest: "{{ workspace_root }}/{{ item }}"
+    owner: "{{ backend_user }}"
+    group: "{{ backend_user }}"
+    mode: "0644"
+  loop: [package.json, package-lock.json]
+  notify: Restart backend
+
+- name: Ensure companion workspace directory exists
+  ansible.builtin.file:
+    path: "{{ app_root }}"
+    state: directory
+    mode: "0755"
+
+- name: Deploy companion package manifest before workspace install
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../app/package.json"
+    dest: "{{ app_root }}/package.json"
+    mode: "0644"
+
+- name: Install locked application workspace dependencies
   ansible.builtin.command:
-    cmd: /usr/bin/npm install --no-audit --no-fund
-    chdir: "{{ backend_root }}"
+    cmd: /usr/bin/npm ci --no-audit --no-fund
+    chdir: "{{ workspace_root }}"
   changed_when: false
 
 - name: Build backend
@@ -70,6 +91,25 @@
     owner: "{{ backend_user }}"
     group: "{{ backend_user }}"
     recurse: true
+
+- name: Deploy database schema and seed alongside backend
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../db/"
+    dest: "{{ backend_root }}/db/"
+    owner: "{{ backend_user }}"
+    group: "{{ backend_user }}"
+    mode: preserve
+  notify: Restart backend
+
+- name: Initialize or migrate content without resetting it
+  ansible.builtin.command:
+    cmd: /usr/bin/node dist/init-db.js
+    chdir: "{{ backend_root }}"
+  environment:
+    DB_PATH: "{{ db_path }}"
+    DB_SCHEMA_DIR: "{{ backend_root }}/db"
+  become_user: "{{ backend_user }}"
+  changed_when: false
 
 - name: Install backend systemd unit
   ansible.builtin.template:
@@ -90,3 +130,12 @@
     name: pitv-backend.service
     enabled: true
     state: started
+
+- name: Verify the native backend is ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ backend_port }}/api/health"
+    timeout: 3
+  register: backend_health
+  until: backend_health.status == 200 and backend_health.json.player | default('') == 'native'
+  retries: 15
+  delay: 1

@@ -17,9 +17,9 @@
     create_home: true
     state: present
 
-- name: Ensure disposable Chromium profile dir exists
+- name: Ensure native cache directory exists
   ansible.builtin.file:
-    path: "{{ kiosk_data_dir }}"
+    path: "/home/{{ kiosk_user }}/.cache/pitv"
     state: directory
     owner: "{{ kiosk_user }}"
     group: "{{ kiosk_user }}"

@@ -1,85 +1,28 @@
 ---
-# ──────────────────────────────────────────────────────────────────────────
-# The two things you'll change most often:
-# ──────────────────────────────────────────────────────────────────────────
-
-# The web app the kiosk displays. Remote URL, LAN address, or http://localhost
-# if you self-host the app on the pi.
-# Default points at the bundled placeholder page (see kiosk_serve_local_app).
-kiosk_url: "http://localhost"
-
-# When true, this device hosts the full app stack locally (frontend + API +
-# SQLite) and kiosk_url should point at http://localhost. Set false to point
-# the kiosk at a remote URL instead.
-kiosk_serve_local_app: true
-
-# ──────────────────────────────────────────────────────────────────────────
-# App stack (frontend + backend + database)
-# ──────────────────────────────────────────────────────────────────────────
+# PiTV runs a native Qt/GStreamer television application and a web phone companion.
 nodejs_major: 22
-backend_user: "pitv"
-backend_root: "/opt/pitv-backend"   # Fastify API source + build
-app_root: "/opt/pitv-frontend"      # React source; built into {{ app_root }}/dist
-db_dir: "/var/lib/pitv"
+backend_user: pitv
+workspace_root: /opt/pitv
+backend_root: "{{ workspace_root }}/server"
+app_root: "{{ workspace_root }}/app"
+native_root: /opt/pitv-native
+db_dir: /var/lib/pitv
 db_path: "{{ db_dir }}/library.db"
 backend_port: 3000
-db_schema_version: 2     # bump to force a one-time DB reset on the next deploy
 
-# Where this config lives, used by the `update-kiosk` helper (ansible-pull).
-# Set this to your GitHub repo before flashing the pi.
+# Pin the importer separately; update and re-provision when YouTube changes.
+yt_dlp_version: "2026.08.19"
+media_tools_root: /opt/pitv-media-tools
+media_cache_limit_mb: 4096
+media_max_asset_mb: 512
+media_queue_limit: 200
+
 kiosk_repo_url: "https://github.com/maximcollingwood/pitv.git"
-kiosk_repo_branch: "main"
-
-# ──────────────────────────────────────────────────────────────────────────
-# Kiosk identity
-# ──────────────────────────────────────────────────────────────────────────
-kiosk_user: "kiosk"
-kiosk_uid: 1001                       # fixed so XDG_RUNTIME_DIR is deterministic
-kiosk_groups:                         # seat/DRM/input/audio access
-  - video
-  - render
-  - input
-  - tty
-  - audio
-kiosk_data_dir: "/home/{{ kiosk_user }}/.kiosk-profile"  # disposable Chromium state
-
-# Escape-hatch console: Ctrl+Alt+F<this> reaches a login shell; Ctrl+Alt+F1
-# returns to the kiosk. A getty is kept running here permanently.
+kiosk_repo_branch: main
+kiosk_user: kiosk
+kiosk_uid: 1001
+kiosk_groups: [video, render, input, tty, audio]
 admin_console_tty: 2
-
-# When false, the playbook installs everything but does NOT start the on-screen
-# compositor. The dev VM sets this false (VirtualBox has no real DRM/GPU seat),
-# so `vagrant provision` validates the whole playbook without needing a GPU.
-# The pi leaves this true.
+# The development VM compiles/tests the native app without a physical HDMI seat.
 kiosk_start_compositor: true
-
-# ──────────────────────────────────────────────────────────────────────────
-# Chromium hardening flags. Edit freely; rendered into the launch script.
-# ──────────────────────────────────────────────────────────────────────────
-chromium_flags:
-  - "--kiosk"
-  - "--noerrdialogs"
-  - "--disable-infobars"
-  # Note: deliberately NOT --incognito. Incognito mode keeps localStorage in
-  # memory only, so per-device preferences (dark mode, etc.) wouldn't persist
-  # across reboots. The dedicated --user-data-dir keeps things isolated.
-  - "--disable-session-crashed-bubble"
-  - "--disable-features=Translate"
-  - "--no-first-run"
-  - "--fast"
-  - "--fast-start"
-  - "--check-for-update-interval=31536000"
-  - "--autoplay-policy=no-user-gesture-required"   # let videos auto-start with sound
-  # Run on Wayland natively (skip Xwayland's extra blit / lost vsync — fixes
-  # the horizontal tearing during video playback on the pi).
-  - "--ozone-platform=wayland"
-  # GPU rasterization + zero-copy compositor path so frames go straight to the
-  # KMS scanout via EGL.
-  - "--use-gl=egl"
-  - "--enable-gpu-rasterization"
-  - "--enable-zero-copy"
-  # One --enable-features flag (Chromium merges multiple but last-wins is safer):
-  #   UseOzonePlatform                 — required to honor --ozone-platform=wayland
-  #   AcceleratedVideoDecodeLinuxV4L2  — Pi V4L2 H.264 hardware decode
-  #   V4L2FlatStatefulVideoDecoder     — the stateful path the Pi exposes
-  - "--enable-features=UseOzonePlatform,AcceleratedVideoDecodeLinuxV4L2,V4L2FlatStatefulVideoDecoder"
+native_build_jobs: 2

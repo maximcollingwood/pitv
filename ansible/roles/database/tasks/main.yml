@@ -1,7 +1,4 @@
 ---
-# Create only when absent. Modifying an existing user in place fails when the
-# backend service is already running as it (usermod: "user is currently used by
-# process N"), so we never reconcile attributes of an existing account.
 - name: Check whether backend service user exists
   ansible.builtin.command: "id {{ backend_user }}"
   register: backend_user_check
@@ -16,12 +13,12 @@
     create_home: false
   when: backend_user_check.rc != 0
 
-- name: Install sqlite3 CLI
+- name: Install database tools
   ansible.builtin.apt:
     name: sqlite3
     state: present
 
-- name: Ensure data directory exists
+- name: Ensure persistent data directory exists
   ansible.builtin.file:
     path: "{{ db_dir }}"
     state: directory
@@ -29,51 +26,27 @@
     group: "{{ backend_user }}"
     mode: "0755"
 
-# One-time reset when the schema version is bumped (PRAGMA user_version). This
-# is how the breaking "sections" model rolls out without wiping on every deploy.
-- name: Read current DB schema version
-  ansible.builtin.command: "sqlite3 '{{ db_path }}' 'PRAGMA user_version;'"
-  register: db_user_version
-  changed_when: false
+# SQLite's online backup includes committed WAL data. Never reset content on deploy.
+- name: Check for existing content database
+  ansible.builtin.stat:
+    path: "{{ db_path }}"
+  register: existing_db
 
-- name: Reset app tables when schema is outdated
-  ansible.builtin.shell:
-    cmd: "sqlite3 '{{ db_path }}' < '{{ playbook_dir }}/../db/reset.sql'"
-  when: (db_user_version.stdout | trim | int) < db_schema_version
+- name: Preserve pre-native content backup once
+  ansible.builtin.command:
+    argv:
+      - sqlite3
+      - "{{ db_path }}"
+      - ".backup '{{ db_dir }}/pre-native-rewrite.db'"
+    creates: "{{ db_dir }}/pre-native-rewrite.db"
+  when: existing_db.stat.exists
 
-# schema.sql is idempotent (CREATE TABLE IF NOT EXISTS); seed.sql is idempotent
-# (INSERT OR IGNORE), so applying on every run is safe.
-- name: Apply schema
-  ansible.builtin.shell:
-    cmd: "sqlite3 '{{ db_path }}' < '{{ playbook_dir }}/../db/schema.sql'"
-  changed_when: false
-
-- name: Apply seed data
-  ansible.builtin.shell:
-    cmd: "sqlite3 '{{ db_path }}' < '{{ playbook_dir }}/../db/seed.sql'"
-  changed_when: false
-
-- name: Record schema version
-  ansible.builtin.command: "sqlite3 '{{ db_path }}' 'PRAGMA user_version = {{ db_schema_version }};'"
-  changed_when: false
-
-# Additive migrations — applied if the column doesn't exist yet, so existing
-# DBs catch up without a destructive reset.
-- name: Inspect articles columns
-  ansible.builtin.command: "sqlite3 '{{ db_path }}' \"PRAGMA table_info(articles)\""
-  register: articles_cols
-  changed_when: false
-
-- name: Add articles.position (and seed initial order by title)
-  ansible.builtin.shell: |
-    set -e
-    sqlite3 '{{ db_path }}' "ALTER TABLE articles ADD COLUMN position INTEGER NOT NULL DEFAULT 0;"
-    sqlite3 '{{ db_path }}' "UPDATE articles SET position = (SELECT COUNT(*) FROM articles a2 WHERE a2.section_id = articles.section_id AND a2.title <= articles.title);"
-  when: "'position' not in articles_cols.stdout"
-
-- name: Ensure database file is owned by the backend user
+- name: Ensure existing database ownership
   ansible.builtin.file:
     path: "{{ db_path }}"
     owner: "{{ backend_user }}"
     group: "{{ backend_user }}"
     mode: "0644"
+  when: existing_db.stat.exists
+
+# Shared backend migration code initializes/upgrades the DB after source deployment.

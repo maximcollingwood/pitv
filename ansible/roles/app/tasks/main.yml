@@ -1,7 +1,5 @@
 ---
-# Builds the React frontend and serves it via nginx, reverse-proxying /api to
-# the backend service. Disable the whole local app stack with
-# kiosk_serve_local_app: false.
+# Builds the phone companion and serves it with nginx, proxying /api locally.
 - name: Install nginx
   ansible.builtin.apt:
     name: nginx
@@ -17,17 +15,12 @@
 
 - name: Deploy frontend source
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../app/"
-    dest: "{{ app_root }}/"
+    src: "{{ playbook_dir }}/../app/{{ item }}"
+    dest: "{{ app_root }}/{{ item }}"
     owner: root
     group: root
     mode: preserve
-
-- name: Install frontend dependencies
-  ansible.builtin.command:
-    cmd: /usr/bin/npm install --no-audit --no-fund
-    chdir: "{{ app_root }}"
-  changed_when: false
+  loop: [src/, index.html, package.json, tsconfig.json, vite.config.ts]
 
 - name: Build frontend
   ansible.builtin.command:

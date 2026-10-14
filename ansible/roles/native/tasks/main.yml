@@ -1,0 +1,77 @@
+---
+- name: Install native build and playback dependencies
+  ansible.builtin.apt:
+    name:
+      - cmake
+      - ninja-build
+      - pkg-config
+      - g++
+      - qt6-base-dev
+      - qt6-declarative-dev
+      - qt6-shadertools-dev
+      - qt6-wayland
+      - qml6-module-qtquick
+      - qml6-module-qtquick-controls
+      - qml6-module-qtquick-layouts
+      - qml6-module-qtquick-window
+      - qml6-module-qtquick-templates
+      - qml6-module-qtqml-workerscript
+      - libgstreamer1.0-dev
+      - libgstreamer-plugins-base1.0-dev
+      - gstreamer1.0-qt6
+      - gstreamer1.0-gl
+      - gstreamer1.0-tools
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-plugins-bad
+      - gstreamer1.0-libav
+      - libqrencode-dev
+      - fonts-dejavu-core
+      - fonts-noto-core
+    state: present
+
+- name: Ensure native source directory exists
+  ansible.builtin.file:
+    path: "{{ native_root }}/src"
+    state: directory
+    mode: "0755"
+
+- name: Deploy native source
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../native/{{ item }}"
+    dest: "{{ native_root }}/src/{{ item }}"
+    mode: preserve
+  loop: [CMakeLists.txt, qml.qrc, src/, qml/, tests/]
+
+- name: Configure native application
+  ansible.builtin.command:
+    argv:
+      - cmake
+      - -S
+      - "{{ native_root }}/src"
+      - -B
+      - "{{ native_root }}/build"
+      - -G
+      - Ninja
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_PREFIX=/usr/local
+      - -DBUILD_TESTING=ON
+  changed_when: false
+
+- name: Build native application
+  ansible.builtin.command:
+    argv: [cmake, --build, "{{ native_root }}/build", --parallel, "{{ native_build_jobs | string }}"]
+  register: native_build
+  changed_when: "'no work to do' not in native_build.stdout"
+
+- name: Run native unit tests
+  ansible.builtin.command:
+    argv: [ctest, --test-dir, "{{ native_root }}/build", --output-on-failure]
+  changed_when: false
+
+- name: Install native application
+  ansible.builtin.command:
+    argv: [cmake, --install, "{{ native_root }}/build"]
+  register: native_install
+  changed_when: "'Installing:' in native_install.stdout"
+  notify: Restart kiosk

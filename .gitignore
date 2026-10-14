@@ -22,3 +22,9 @@ server/data/
 *.db-journal
 *.db-wal
 npm-debug.log*
+
+# Native builds and local verification artifacts
+native/build/
+native/out/
+build/
+.artifacts/

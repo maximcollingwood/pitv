@@ -1,8 +1,8 @@
 # Managed by Ansible — edit the template, not this file.
 [Unit]
-Description=Web kiosk (labwc + Chromium)
-After=systemd-user-sessions.service network-online.target
-Wants=network-online.target
+Description=PiTV native kiosk (Qt Quick + GStreamer)
+After=systemd-user-sessions.service pitv-backend.service
+Wants=pitv-backend.service
 Conflicts=getty@tty1.service
 After=getty@tty1.service
 

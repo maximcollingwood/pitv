@@ -1,807 +1,168 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import {
-  api,
-  ApiError,
-  getToken,
-  setToken,
-  clearToken,
-  type Section,
-  type SectionType,
-  type Item,
-} from "../lib/api";
+import { Link } from "react-router-dom";
+import { ContentEditor, TYPE_LABEL } from "../components/ContentEditor";
+import { DeviceCard } from "../components/DeviceCard";
+import { MediaPreparation } from "../components/MediaPreparation";
+import { ScreenSettings } from "../components/ScreenSettings";
+import { api, ApiError, clearToken, errorMessage, getToken, setToken, type Item, type Section, type SectionType } from "../lib/api";
 
-type FieldType = "text" | "textarea" | "number" | "checkbox" | "image";
-interface Field {
-  name: string;
-  label: string;
-  type: FieldType;
-  // For image fields: the upload tag used to namespace the file on disk.
-  uploadTag?: string;
-}
-
-const TYPE_LABEL: Record<SectionType, string> = {
-  articles: "Articles",
-  lyrics: "Song lyrics",
-  media: "YouTube videos",
-  catalog: "Book catalog",
-  faq: "Book FAQs",
-};
-
-const TYPE_FIELDS: Record<SectionType, Field[]> = {
-  articles: [
-    { name: "title", label: "Title", type: "text" },
-    { name: "body", label: "Body", type: "textarea" },
-  ],
-  lyrics: [
-    { name: "title", label: "Title", type: "text" },
-    { name: "body", label: "Lyrics (separate verses with a blank line)", type: "textarea" },
-  ],
-  media: [
-    { name: "category", label: "Category", type: "text" },
-    { name: "title", label: "Title", type: "text" },
-    { name: "youtube_url", label: "YouTube URL", type: "text" },
-    { name: "is_playlist", label: "This link is a playlist", type: "checkbox" },
-  ],
-  catalog: [
-    { name: "title", label: "Title", type: "text" },
-    { name: "author", label: "Author", type: "text" },
-    { name: "year", label: "Year written", type: "number" },
-    { name: "category", label: "Category", type: "text" },
-    { name: "description", label: "Summary", type: "textarea" },
-  ],
-  faq: [
-    { name: "question", label: "Question", type: "text" },
-    { name: "book_title", label: "Book title", type: "text" },
-    { name: "quote", label: "Quote", type: "textarea" },
-    { name: "location", label: "Location (e.g. page 42)", type: "text" },
-    { name: "cover_url", label: "Book cover", type: "image", uploadTag: "faq-cover" },
-  ],
-};
-
-type View = "home" | "settings" | "sections" | "content" | "background";
-
-// Fields for the standalone background-audio tracks editor (not tied to a section).
-const BG_FIELDS: Field[] = [
-  { name: "title", label: "Title", type: "text" },
-  { name: "youtube_url", label: "YouTube URL", type: "text" },
-];
+type View = "library" | "background" | "preparation" | "settings";
+type SectionDraft = { id?: number; name: string; type: SectionType };
+const BG_PATH = "/api/admin/background/tracks";
+const TYPE_ICON: Record<SectionType, string> = { articles: "Aa", lyrics: "♫", media: "▶", catalog: "▤", faq: "?" };
 
 export function Admin() {
-  const [token, setTok] = useState<string | null>(getToken());
+  const [token, setSession] = useState(getToken);
   const [pin, setPin] = useState("");
-  const [authError, setAuthError] = useState<string | null>(null);
-
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>("library");
   const [sections, setSections] = useState<Section[]>([]);
-  const [settings, setSettings] = useState({ title: "", subtitle: "", hero: "" });
-  const [heroUploading, setHeroUploading] = useState(false);
-
-  const [active, setActive] = useState<Section | null>(null); // content view
+  const [active, setActive] = useState<Section | null>(null);
   const [items, setItems] = useState<Item[]>([]);
-  const [draft, setDraft] = useState<Record<string, unknown> | null>(null); // item editor
-  const [sectionForm, setSectionForm] = useState<
-    { id?: number; type: SectionType; name: string } | null
-  >(null);
-
-  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ item: Item | null } | null>(null);
+  const [sectionDraft, setSectionDraft] = useState<SectionDraft | null>(null);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [imgUploading, setImgUploading] = useState(false);
-
-  // Background-audio tracks (standalone, not tied to a section).
-  const [bgTracks, setBgTracks] = useState<Item[]>([]);
-  const [bgDraft, setBgDraft] = useState<Record<string, unknown> | null>(null);
-  const BG_PATH = "/api/admin/background/tracks";
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  const refresh = () => setRevision((current) => current + 1);
 
   const signOut = useCallback(() => {
-    clearToken();
-    setTok(null);
-    setView("home");
-    setActive(null);
+    clearToken(); setSession(null); setView("library"); setActive(null);
+    setEditing(null); setSectionDraft(null); setItems([]); setSections([]); setMessage(null);
   }, []);
-
-  const handleError = useCallback(
-    (e: unknown) => {
-      if (e instanceof ApiError && e.status === 401) signOut();
-      else setError("Something went wrong. Please try again.");
-    },
-    [signOut],
-  );
-
-  const loadSections = useCallback(
-    () => api.adminSections().then(setSections).catch(handleError),
-    [handleError],
-  );
-
-  const loadBg = useCallback(
-    () => api.adminList<Item>(BG_PATH).then(setBgTracks).catch(handleError),
-    [handleError],
-  );
+  const handleError = useCallback((failure: unknown) => {
+    if (failure instanceof ApiError && failure.status === 401) signOut();
+    setError(errorMessage(failure));
+  }, [signOut]);
 
   useEffect(() => {
     if (!token) return;
-    loadSections();
-    api
-      .getSettings()
-      .then((s) =>
-        setSettings({
-          title: s.title ?? "",
-          subtitle: s.subtitle ?? "",
-          hero: s.hero_image ?? "",
-        }),
-      )
-      .catch(handleError);
-  }, [token, loadSections, handleError]);
+    const stream = new EventSource("/api/device/events");
+    stream.onmessage = (event) => {
+      try { if (JSON.parse(event.data).type === "library") setRevision((current) => current + 1); }
+      catch { /* Ignore unsupported event frames. */ }
+    };
+    return () => stream.close();
+  }, [token]);
 
+  const itemPath = view === "background" ? BG_PATH : active ? `/api/admin/sections/${active.id}/items` : null;
+  useEffect(() => { setLoading(true); setItems([]); }, [token, itemPath]);
   useEffect(() => {
-    if (view === "background") loadBg();
-  }, [view, loadBg]);
+    if (!token) return;
+    let current = true;
+    const request = itemPath ? api.adminList(itemPath) : api.adminSections();
+    request.then((next) => {
+      if (!current) return;
+      if (itemPath) setItems(next as Item[]); else setSections(next as Section[]);
+    }).catch((failure) => { if (current) handleError(failure); }).finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
+  }, [token, itemPath, revision, handleError]);
 
-  function blankBg(): Record<string, unknown> {
-    const d: Record<string, unknown> = {};
-    for (const f of BG_FIELDS) d[f.name] = "";
-    return d;
+  function navigate(next: View) {
+    setView(next); setActive(null); setEditing(null); setSectionDraft(null); setError(null); setMessage(null);
   }
-
-  function openBgEdit(it: Item) {
-    const d: Record<string, unknown> = { id: it.id };
-    for (const f of BG_FIELDS) d[f.name] = it[f.name] ?? "";
-    setBgDraft(d);
+  async function login(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError(null);
+    try { const result = await api.login(pin); setToken(result.token); setSession(result.token); setPin(""); }
+    catch (failure) { setError(failure instanceof ApiError && failure.status === 401 ? "That PIN did not match. Please try again." : errorMessage(failure)); }
+    finally { setBusy(false); }
   }
-
-  async function saveBg(e: FormEvent) {
-    e.preventDefault();
-    if (!bgDraft) return;
-    setBusy(true);
-    setError(null);
+  async function saveSection(event: FormEvent) {
+    event.preventDefault(); if (!sectionDraft || !sectionDraft.name.trim()) return;
+    setBusy(true); setError(null);
     try {
-      const payload: Record<string, unknown> = {};
-      for (const f of BG_FIELDS) payload[f.name] = bgDraft[f.name] ?? "";
-      const id = bgDraft.id as number | undefined;
-      if (id) await api.adminUpdate(BG_PATH, id, payload);
-      else await api.adminCreate(BG_PATH, payload);
-      setBgDraft(null);
-      await loadBg();
-    } catch (e) {
-      handleError(e);
-    } finally {
-      setBusy(false);
-    }
+      if (sectionDraft.id) await api.updateSection(sectionDraft.id, { name: sectionDraft.name.trim() });
+      else await api.createSection({ type: sectionDraft.type, name: sectionDraft.name.trim() });
+      setSectionDraft(null); refresh(); setMessage("Section saved. The screen will update automatically.");
+    } catch (failure) { handleError(failure); } finally { setBusy(false); }
   }
-
-  async function removeBg(id: number) {
-    if (!confirm("Delete this background track?")) return;
+  async function deleteSection(section: Section) {
+    if (!window.confirm(`Delete “${section.name}” and all of its content? This cannot be undone.`)) return;
+    setBusy(true); setError(null);
+    try { await api.deleteSection(section.id); refresh(); setMessage("Section deleted."); }
+    catch (failure) { handleError(failure); } finally { setBusy(false); }
+  }
+  async function saveItem(data: Record<string, unknown>) {
+    if (!itemPath || !editing) return;
     try {
-      await api.adminDelete(BG_PATH, id);
-      setBgTracks((prev) => prev.filter((x) => x.id !== id));
-    } catch (e) {
-      handleError(e);
-    }
+      if (editing.item) await api.adminUpdate(itemPath, editing.item.id, data); else await api.adminCreate(itemPath, data);
+      setEditing(null); refresh(); setMessage("Saved to your library.");
+    } catch (failure) { handleError(failure); throw failure; }
   }
-
-  async function login(e: FormEvent) {
-    e.preventDefault();
-    setAuthError(null);
+  async function deleteItem(item: Item) {
+    if (!itemPath || !window.confirm(`Delete “${String(item.question || item.title || "this item")}”? This cannot be undone.`)) return;
+    setBusy(true); setError(null);
+    try { await api.adminDelete(itemPath, item.id); refresh(); setMessage("Item deleted."); }
+    catch (failure) { handleError(failure); } finally { setBusy(false); }
+  }
+  async function move(index: number, direction: -1 | 1, sectionList = false) {
+    const list = sectionList ? [...sections] : [...items];
+    if (index + direction < 0 || index + direction >= list.length) return;
+    [list[index], list[index + direction]] = [list[index + direction], list[index]];
+    setBusy(true); setError(null);
     try {
-      const { token: t } = await api.login(pin);
-      setToken(t);
-      setTok(t);
-      setPin("");
-    } catch {
-      setAuthError("Incorrect PIN");
-      setPin("");
-    }
-  }
-
-  // ── Settings ────────────────────────────────────────────────────────────────
-  async function saveSettings(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      // Only round-trip the form fields; hero is managed separately by upload/delete
-      // so it doesn't accidentally get clobbered or written under the wrong key.
-      await api.saveSettings({ title: settings.title, subtitle: settings.subtitle });
-      setView("home");
-    } catch (e) {
-      handleError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // ── Hero image ────────────────────────────────────────────────────────────────
-  function onHeroFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setHeroUploading(true);
-    setError(null);
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setHeroUploading(false);
-      setError("Could not read that file.");
-    };
-    reader.onload = async () => {
-      try {
-        const dataUrl = String(reader.result);
-        const comma = dataUrl.indexOf(",");
-        const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-        const mime =
-          /data:([^;]+);base64/.exec(dataUrl.slice(0, comma))?.[1] ?? file.type ?? "image/jpeg";
-        const { url } = await api.uploadHero(b64, mime);
-        setSettings((s) => ({ ...s, hero: url }));
-      } catch (err) {
-        handleError(err);
-      } finally {
-        setHeroUploading(false);
-        // Reset the input so the same file can be picked again later.
-        e.target.value = "";
+      // Normalize legacy positions too: older libraries can contain tied values.
+      for (let position = 0; position < list.length; position++) {
+        if (Number(list[position].position) === position) continue;
+        if (sectionList) await api.updateSection(list[position].id, { position });
+        else if (itemPath) await api.adminUpdate(itemPath, list[position].id, { position });
       }
-    };
-    reader.readAsDataURL(file);
+      refresh();
+    } catch (failure) { handleError(failure); refresh(); } finally { setBusy(false); }
   }
 
-  async function removeHero() {
-    if (!confirm("Remove the hero image?")) return;
-    try {
-      await api.deleteHero();
-      setSettings((s) => ({ ...s, hero: "" }));
-    } catch (e) {
-      handleError(e);
-    }
-  }
+  const itemType = view === "background" ? "background" : active?.type;
+  const ordered = itemType === "background" || itemType === "articles" || itemType === "lyrics" || itemType === "faq";
+  const title = sectionDraft ? sectionDraft.id ? "Rename section" : "A new collection"
+    : editing ? editing.item ? "Make it yours" : view === "background" ? "Add background audio" : "Add to your collection"
+    : active ? active.name : view === "background" ? "A little atmosphere"
+    : view === "preparation" ? "Ready when you are" : view === "settings" ? "Your screen, your space" : "A library worth exploring";
 
-  // ── Sections ──────────────────────────────────────────────────────────────────
-  async function saveSection(e: FormEvent) {
-    e.preventDefault();
-    if (!sectionForm || !sectionForm.name.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      if (sectionForm.id) await api.updateSection(sectionForm.id, { name: sectionForm.name.trim() });
-      else await api.createSection({ type: sectionForm.type, name: sectionForm.name.trim() });
-      setSectionForm(null);
-      await loadSections();
-    } catch (e) {
-      handleError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function deleteSection(s: Section) {
-    if (!confirm(`Delete the "${s.name}" section and all its content?`)) return;
-    try {
-      await api.deleteSection(s.id);
-      setSections((prev) => prev.filter((x) => x.id !== s.id));
-    } catch (e) {
-      handleError(e);
-    }
-  }
-
-  async function moveSection(s: Section, dir: "up" | "down") {
-    const sorted = [...sections].sort((a, b) => a.position - b.position);
-    const idx = sorted.findIndex((x) => x.id === s.id);
-    const swap = dir === "up" ? idx - 1 : idx + 1;
-    if (swap < 0 || swap >= sorted.length) return;
-    const other = sorted[swap];
-    try {
-      await api.updateSection(s.id, { position: other.position });
-      await api.updateSection(other.id, { position: s.position });
-      await loadSections();
-    } catch (e) {
-      handleError(e);
-    }
-  }
-
-  // ── Content ─────────────────────────────────────────────────────────────────
-  function openContent(s: Section) {
-    setActive(s);
-    setView("content");
-    setError(null);
-    api.itemsList(s.id).then(setItems).catch(handleError);
-  }
-
-  function blankDraft(type: SectionType): Record<string, unknown> {
-    const d: Record<string, unknown> = {};
-    for (const f of TYPE_FIELDS[type]) d[f.name] = f.type === "checkbox" ? false : "";
-    return d;
-  }
-
-  function openEditItem(it: Item) {
-    if (!active) return;
-    const d: Record<string, unknown> = { id: it.id };
-    for (const f of TYPE_FIELDS[active.type]) {
-      d[f.name] = f.type === "checkbox" ? Boolean(it[f.name]) : (it[f.name] ?? "");
-    }
-    setDraft(d);
-  }
-
-  async function saveItem(e: FormEvent) {
-    e.preventDefault();
-    if (!active || !draft) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const payload: Record<string, unknown> = {};
-      for (const f of TYPE_FIELDS[active.type]) {
-        const v = draft[f.name];
-        if (f.type === "checkbox") payload[f.name] = v ? 1 : 0;
-        else if (f.type === "number") payload[f.name] = v === "" ? null : Number(v);
-        else payload[f.name] = v ?? "";
-      }
-      const id = draft.id as number | undefined;
-      if (id) await api.updateItem(active.id, id, payload);
-      else await api.createItem(active.id, payload);
-      setDraft(null);
-      const fresh = await api.itemsList(active.id);
-      setItems(fresh);
-    } catch (e) {
-      handleError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function onItemImage(field: Field, e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !draft) return;
-    setImgUploading(true);
-    setError(null);
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setImgUploading(false);
-      setError("Could not read that file.");
-    };
-    reader.onload = async () => {
-      try {
-        const dataUrl = String(reader.result);
-        const comma = dataUrl.indexOf(",");
-        const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-        const mime =
-          /data:([^;]+);base64/.exec(dataUrl.slice(0, comma))?.[1] ?? file.type ?? "image/jpeg";
-        const { url } = await api.uploadImage(field.uploadTag ?? "image", b64, mime);
-        // The user may have cancelled or navigated; only apply if the draft
-        // we read from is still the one mounted.
-        setDraft((d) => (d ? { ...d, [field.name]: url } : d));
-      } catch (err) {
-        handleError(err);
-      } finally {
-        setImgUploading(false);
-        e.target.value = "";
-      }
-    };
-    reader.readAsDataURL(file);
-  }
-
-  async function deleteItem(id: number) {
-    if (!active || !confirm("Delete this item?")) return;
-    try {
-      await api.deleteItem(active.id, id);
-      setItems((prev) => prev.filter((x) => x.id !== id));
-    } catch (e) {
-      handleError(e);
-    }
-  }
-
-  async function moveItem(item: Item, dir: "up" | "down") {
-    if (!active) return;
-    const labelOf = (x: Item) =>
-      String(active.type === "faq" ? (x.question ?? "") : (x.title ?? ""));
-    const sorted = [...items].sort((a, b) => {
-      const pa = Number(a.position ?? 0);
-      const pb = Number(b.position ?? 0);
-      if (pa !== pb) return pa - pb;
-      return labelOf(a).localeCompare(labelOf(b));
-    });
-    const idx = sorted.findIndex((x) => x.id === item.id);
-    const swap = dir === "up" ? idx - 1 : idx + 1;
-    if (swap < 0 || swap >= sorted.length) return;
-    const other = sorted[swap];
-    const ip = Number(item.position ?? 0);
-    const op = Number(other.position ?? 0);
-    try {
-      await api.updateItem(active.id, Number(item.id), { position: op });
-      await api.updateItem(active.id, Number(other.id), { position: ip });
-      const fresh = await api.itemsList(active.id);
-      setItems(fresh);
-    } catch (e) {
-      handleError(e);
-    }
-  }
-
-  // ── Render: PIN gate ──────────────────────────────────────────────────────────
-  if (!token) {
-    return (
-      <div className="admin admin--login">
-        <h1 className="admin__brand">Configure this screen</h1>
-        <form className="admin__pin" onSubmit={login}>
-          <label htmlFor="pin">Enter PIN</label>
-          <input
-            id="pin"
-            type="password"
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={8}
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-            autoFocus
-          />
-          {authError && <p className="admin__error">{authError}</p>}
-          <button type="submit" className="btn btn--primary">Unlock</button>
-        </form>
-        <a className="remote__edit" href="/remote">Back to remote</a>
-      </div>
-    );
-  }
-
-  // ── Render: item editor ─────────────────────────────────────────────────────
-  if (active && draft) {
-    return (
-      <div className="admin">
-        <header className="admin__bar">
-          <button className="btn btn--small" onClick={() => setDraft(null)}>Cancel</button>
-          <span className="admin__title">{draft.id ? "Edit" : "New"} item</span>
-          <span />
-        </header>
-        <form className="admin__form" onSubmit={saveItem}>
-          {TYPE_FIELDS[active.type].map((f) =>
-            f.type === "image" ? (
-              <div key={f.name} className="admin__field">
-                <span className="admin__field-label">{f.label}</span>
-                {draft[f.name] ? (
-                  <div className="admin__image-preview">
-                    <img src={String(draft[f.name])} alt="" />
-                    <button
-                      type="button"
-                      className="btn btn--small btn--danger"
-                      onClick={() => setDraft({ ...draft, [f.name]: "" })}
-                      disabled={imgUploading}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ) : (
-                  <p className="muted">No image set.</p>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => onItemImage(f, e)}
-                  disabled={imgUploading}
-                />
-                {imgUploading && <p className="muted">Uploading…</p>}
-              </div>
-            ) : (
-              <label key={f.name} className={f.type === "checkbox" ? "admin__check" : ""}>
-                {f.type === "checkbox" ? (
-                  <>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(draft[f.name])}
-                      onChange={(e) => setDraft({ ...draft, [f.name]: e.target.checked })}
-                    />
-                    {f.label}
-                  </>
-                ) : f.type === "textarea" ? (
-                  <>
-                    {f.label}
-                    <textarea
-                      rows={10}
-                      value={String(draft[f.name] ?? "")}
-                      onChange={(e) => setDraft({ ...draft, [f.name]: e.target.value })}
-                    />
-                  </>
-                ) : (
-                  <>
-                    {f.label}
-                    <input
-                      type={f.type === "number" ? "number" : "text"}
-                      value={String(draft[f.name] ?? "")}
-                      onChange={(e) => setDraft({ ...draft, [f.name]: e.target.value })}
-                    />
-                  </>
-                )}
-              </label>
-            ),
-          )}
-          {error && <p className="admin__error">{error}</p>}
-          <button type="submit" className="btn btn--primary" disabled={busy || imgUploading}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  // ── Render: add/edit section ──────────────────────────────────────────────────
-  if (sectionForm) {
-    return (
-      <div className="admin">
-        <header className="admin__bar">
-          <button className="btn btn--small" onClick={() => setSectionForm(null)}>Cancel</button>
-          <span className="admin__title">{sectionForm.id ? "Rename" : "New"} section</span>
-          <span />
-        </header>
-        <form className="admin__form" onSubmit={saveSection}>
-          {!sectionForm.id && (
-            <label>
-              Type
-              <select
-                value={sectionForm.type}
-                onChange={(e) =>
-                  setSectionForm({ ...sectionForm, type: e.target.value as SectionType })
-                }
-              >
-                {(Object.keys(TYPE_LABEL) as SectionType[]).map((t) => (
-                  <option key={t} value={t}>{TYPE_LABEL[t]}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label>
-            Name
-            <input
-              type="text"
-              value={sectionForm.name}
-              onChange={(e) => setSectionForm({ ...sectionForm, name: e.target.value })}
-              autoFocus
-            />
-          </label>
-          {error && <p className="admin__error">{error}</p>}
-          <button type="submit" className="btn btn--primary" disabled={busy}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  // ── Render: settings ──────────────────────────────────────────────────────────
-  if (view === "settings") {
-    return (
-      <div className="admin">
-        <header className="admin__bar">
-          <button className="btn btn--small" onClick={() => setView("home")}>Back</button>
-          <span className="admin__title">Title & subtitle</span>
-          <span />
-        </header>
-        <form className="admin__form" onSubmit={saveSettings}>
-          <label>
-            Title
-            <input
-              type="text"
-              value={settings.title}
-              onChange={(e) => setSettings({ ...settings, title: e.target.value })}
-            />
-          </label>
-          <label>
-            Subtitle
-            <input
-              type="text"
-              value={settings.subtitle}
-              onChange={(e) => setSettings({ ...settings, subtitle: e.target.value })}
-            />
-          </label>
-
-          <div className="admin__field">
-            <span className="admin__field-label">Hero image (top of home screen)</span>
-            {settings.hero ? (
-              <div className="admin__hero-preview">
-                <img src={settings.hero} alt="Current hero" />
-                <button
-                  type="button"
-                  className="btn btn--small btn--danger"
-                  onClick={removeHero}
-                  disabled={heroUploading}
-                >
-                  Remove
-                </button>
-              </div>
-            ) : (
-              <p className="muted">No hero image set.</p>
-            )}
-            <input
-              type="file"
-              accept="image/*"
-              onChange={onHeroFile}
-              disabled={heroUploading}
-            />
-            {heroUploading && <p className="muted">Uploading…</p>}
-          </div>
-
-          {error && <p className="admin__error">{error}</p>}
-          <button type="submit" className="btn btn--primary" disabled={busy}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  // ── Render: sections manager ────────────────────────────────────────────────
-  if (view === "sections") {
-    return (
-      <div className="admin">
-        <header className="admin__bar">
-          <button className="btn btn--small" onClick={() => setView("home")}>Back</button>
-          <span className="admin__title">Sections</span>
-          <span />
-        </header>
-        <button
-          className="btn btn--primary admin__new"
-          onClick={() => setSectionForm({ type: "articles", name: "" })}
-        >
-          + Add section
-        </button>
-        {error && <p className="admin__error">{error}</p>}
-        <ul className="admin__list">
-          {sections.map((s) => (
-            <li key={s.id} className="admin__item">
-              <span className="admin__item-title">
-                {s.name} <span className="muted">· {TYPE_LABEL[s.type]}</span>
-              </span>
-              <span className="admin__item-actions">
-                <button className="btn btn--small" onClick={() => moveSection(s, "up")}>↑</button>
-                <button className="btn btn--small" onClick={() => moveSection(s, "down")}>↓</button>
-                <button
-                  className="btn btn--small"
-                  onClick={() => setSectionForm({ id: s.id, type: s.type, name: s.name })}
-                >
-                  Rename
-                </button>
-                <button className="btn btn--small btn--danger" onClick={() => deleteSection(s)}>
-                  Delete
-                </button>
-              </span>
-            </li>
-          ))}
-          {sections.length === 0 && <li className="muted">No sections yet.</li>}
-        </ul>
-      </div>
-    );
-  }
-
-  // ── Render: content for the active section ──────────────────────────────────
-  if (view === "content" && active) {
-    return (
-      <div className="admin">
-        <header className="admin__bar">
-          <button className="btn btn--small" onClick={() => setView("home")}>Back</button>
-          <span className="admin__title">{active.name}</span>
-          <span />
-        </header>
-        <button
-          className="btn btn--primary admin__new"
-          onClick={() => setDraft(blankDraft(active.type))}
-        >
-          + New item
-        </button>
-        {error && <p className="admin__error">{error}</p>}
-        <ul className="admin__list">
-          {items.map((it) => (
-            <li key={it.id} className="admin__item">
-              <span className="admin__item-title">
-                {String(active.type === "faq" ? (it.question ?? "") : (it.title ?? ""))}
-              </span>
-              <span className="admin__item-actions">
-                {(active.type === "articles" ||
-                  active.type === "lyrics" ||
-                  active.type === "faq") && (
-                  <>
-                    <button className="btn btn--small" onClick={() => moveItem(it, "up")}>↑</button>
-                    <button className="btn btn--small" onClick={() => moveItem(it, "down")}>↓</button>
-                  </>
-                )}
-                <button className="btn btn--small" onClick={() => openEditItem(it)}>Edit</button>
-                <button className="btn btn--small btn--danger" onClick={() => deleteItem(it.id)}>
-                  Delete
-                </button>
-              </span>
-            </li>
-          ))}
-          {items.length === 0 && <li className="muted">Nothing here yet.</li>}
-        </ul>
-      </div>
-    );
-  }
-
-  // ── Render: background audio track editor ────────────────────────────────────
-  if (view === "background" && bgDraft) {
-    return (
-      <div className="admin">
-        <header className="admin__bar">
-          <button className="btn btn--small" onClick={() => setBgDraft(null)}>Cancel</button>
-          <span className="admin__title">{bgDraft.id ? "Edit" : "New"} track</span>
-          <span />
-        </header>
-        <form className="admin__form" onSubmit={saveBg}>
-          {BG_FIELDS.map((f) => (
-            <label key={f.name}>
-              {f.label}
-              <input
-                type="text"
-                value={String(bgDraft[f.name] ?? "")}
-                onChange={(e) => setBgDraft({ ...bgDraft, [f.name]: e.target.value })}
-                autoFocus={f.name === "title"}
-              />
-            </label>
-          ))}
-          {error && <p className="admin__error">{error}</p>}
-          <button type="submit" className="btn btn--primary" disabled={busy}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  // ── Render: background audio track list ─────────────────────────────────────
-  if (view === "background") {
-    return (
-      <div className="admin">
-        <header className="admin__bar">
-          <button className="btn btn--small" onClick={() => setView("home")}>Back</button>
-          <span className="admin__title">Background audio</span>
-          <span />
-        </header>
-        <button
-          className="btn btn--primary admin__new"
-          onClick={() => setBgDraft(blankBg())}
-        >
-          + New track
-        </button>
-        {error && <p className="admin__error">{error}</p>}
-        <ul className="admin__list">
-          {bgTracks.map((t) => (
-            <li key={t.id} className="admin__item">
-              <span className="admin__item-title">{String(t.title)}</span>
-              <span className="admin__item-actions">
-                <button className="btn btn--small" onClick={() => openBgEdit(t)}>Edit</button>
-                <button className="btn btn--small btn--danger" onClick={() => removeBg(t.id)}>
-                  Delete
-                </button>
-              </span>
-            </li>
-          ))}
-          {bgTracks.length === 0 && <li className="muted">No tracks yet.</li>}
-        </ul>
-      </div>
-    );
-  }
-
-  // ── Render: home menu ───────────────────────────────────────────────────────
-  return (
-    <div className="admin">
-      <header className="admin__bar">
-        <a className="btn btn--small" href="/remote">Remote</a>
-        <span className="admin__title">Configure</span>
-        <button className="btn btn--small" onClick={signOut}>Sign out</button>
-      </header>
-
-      <div className="admin__menu">
-        <button className="btn admin__menu-item" onClick={() => setView("settings")}>
-          Title &amp; subtitle
-        </button>
-        <button className="btn admin__menu-item" onClick={() => setView("sections")}>
-          Sections
-        </button>
-        <button className="btn admin__menu-item" onClick={() => setView("background")}>
-          Background audio
-        </button>
-      </div>
-
-      <h2 className="admin__subhead">Content</h2>
-      <ul className="admin__list">
-        {sections.map((s) => (
-          <li key={s.id} className="admin__item admin__item--tappable" onClick={() => openContent(s)}>
-            <span className="admin__item-title">
-              {s.name} <span className="muted">· {TYPE_LABEL[s.type]}</span>
-            </span>
-            <span className="muted">›</span>
-          </li>
-        ))}
-        {sections.length === 0 && <li className="muted">Add a section to start adding content.</li>}
-      </ul>
-    </div>
-  );
+  return <main className={`shell admin-shell ${!token ? "login-shell" : ""}`}>
+    <header className="topbar">
+      <Link className="wordmark" to="/remote"><span className="brand-mark" aria-hidden="true">✦</span> PiTV <span>COMPANION</span></Link>
+      <Link className="text-link" to="/remote">Remote <span aria-hidden="true">↗</span></Link>
+    </header>
+    {!token ? <>
+      <div className="page-intro"><p className="eyebrow">THE LIBRARY IS YOURS TO SHAPE</p><h1>A thoughtful space.<br /><em>A personal touch.</em></h1><p className="muted">Add something to read, watch or listen to.</p></div>
+      <form className="panel login-form" onSubmit={(event) => void login(event)}>
+        <span className="login-symbol" aria-hidden="true">✦</span><h2>Welcome back</h2><p className="muted">Enter your administrator PIN to edit the library.</p>
+        <label htmlFor="pin">Administrator PIN<input id="pin" type="password" inputMode="numeric" autoComplete="current-password" required maxLength={32} value={pin} onChange={(event) => setPin(event.target.value)} disabled={busy} /></label>
+        {error && <p className="notice notice--error" role="alert">{error}</p>}
+        <button className="btn btn--primary" disabled={busy}>{busy ? "Unlocking…" : "Unlock library"}<span aria-hidden="true">→</span></button>
+      </form>
+    </> : <>
+      <nav className="admin-nav" aria-label="Library administration">
+        {([['library', 'Library'], ['background', 'Background audio'], ['preparation', 'Media status'], ['settings', 'Screen settings']] as [View, string][]).map(([id, label]) => <button key={id} className={view === id ? "is-active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => navigate(id)}>{label}</button>)}
+        <button className="sign-out" onClick={signOut}>Lock</button>
+      </nav>
+      <div className="admin-heading"><div className="page-intro"><p className="eyebrow">{active ? TYPE_LABEL[active.type] : "CURATED BY YOU"}</p><h1>{title}</h1></div><DeviceCard compact /></div>
+      {error && <p className="notice notice--error" role="alert">{error}<button className="text-link" onClick={() => { setError(null); refresh(); }}>Try again</button></p>}
+      {message && !error && <p className="notice notice--success" role="status">{message}<button className="text-link" aria-label="Dismiss message" onClick={() => setMessage(null)}>×</button></p>}
+      {sectionDraft ? <form className="panel editor-form" onSubmit={(event) => void saveSection(event)}>
+        <fieldset disabled={busy}>
+          {!sectionDraft.id && <label>Collection type<select value={sectionDraft.type} onChange={(event) => setSectionDraft({ ...sectionDraft, type: event.target.value as SectionType })}>{(Object.keys(TYPE_LABEL) as SectionType[]).map((type) => <option key={type} value={type}>{TYPE_LABEL[type]}</option>)}</select></label>}
+          <label>Section name<input required autoFocus value={sectionDraft.name} onChange={(event) => setSectionDraft({ ...sectionDraft, name: event.target.value })} placeholder="For example, Words to live by" /></label>
+        </fieldset>
+        <div className="form-actions"><button className="btn btn--primary" disabled={busy}>{busy ? "Saving…" : "Save section"}</button><button className="btn" type="button" disabled={busy} onClick={() => setSectionDraft(null)}>Cancel</button></div>
+      </form> : editing && itemType ? <ContentEditor key={`${itemType}-${editing.item?.id ?? "new"}`} type={itemType} item={editing.item} onSave={saveItem} onCancel={() => setEditing(null)} onError={handleError} />
+      : view === "settings" ? <ScreenSettings onError={handleError} onSaved={() => setMessage("Screen settings saved.")} />
+      : view === "preparation" ? <MediaPreparation onError={handleError} />
+      : itemPath ? <>
+        <div className="section-heading list-toolbar">{active ? <button className="text-link" onClick={() => { setActive(null); setMessage(null); }}>← All sections</button> : <p className="muted">Paste a YouTube link. We’ll take care of the rest.</p>}<button className="btn btn--primary" disabled={busy} onClick={() => { setEditing({ item: null }); setMessage(null); }}>+ {view === "background" ? "Add audio" : "Add content"}</button></div>
+        {loading ? <p role="status">Loading your collection…</p> : items.length === 0 ? <div className="empty-state"><span aria-hidden="true">✦</span><h2>A little room for inspiration</h2><p>Add the first {view === "background" ? "YouTube link" : "item"} to this collection.</p></div> : <ul className="content-list">{items.map((item, index) => <li className="content-row" key={item.id}>
+          <div className="content-row__main"><span className="item-number">{String(index + 1).padStart(2, "0")}</span><div><h2>{String(item.question || item.title || "YouTube import")}</h2><p className="small muted source-url">{String(item.youtube_url || item.author || item.book_title || String(item.body ?? "").slice(0, 120))}</p>{Boolean(item.is_playlist) && <span className="tag">Playlist</span>}</div></div>
+          <div className="row-actions">{ordered && <><button className="btn btn--small btn--icon" disabled={busy || index === 0} aria-label={`Move item ${index + 1} up`} onClick={() => void move(index, -1)}>↑</button><button className="btn btn--small btn--icon" disabled={busy || index === items.length - 1} aria-label={`Move item ${index + 1} down`} onClick={() => void move(index, 1)}>↓</button></>}<button className="btn btn--small" disabled={busy} onClick={() => { setEditing({ item }); setMessage(null); }}>Edit</button><button className="btn btn--small btn--danger" disabled={busy} onClick={() => void deleteItem(item)}>Delete</button></div>
+        </li>)}</ul>}
+      </> : <>
+        <div className="section-heading list-toolbar"><p className="muted">Make room for ideas that stay with you.</p><button className="btn btn--primary" disabled={busy} onClick={() => { setSectionDraft({ type: "articles", name: "" }); setMessage(null); }}>+ Add section</button></div>
+        {loading ? <p role="status">Opening your library…</p> : sections.length === 0 ? <div className="empty-state"><span aria-hidden="true">✦</span><h2>Start with a collection</h2><p>Create a section for articles, lyrics, videos, books or questions.</p></div> : <ul className="section-grid">{sections.map((section, index) => <li className="collection-card" key={section.id}>
+          <button className="collection-open" onClick={() => { setActive(section); setMessage(null); }}><span className={`collection-icon collection-icon--${section.type}`} aria-hidden="true">{TYPE_ICON[section.type]}</span><span className="eyebrow">{TYPE_LABEL[section.type]}</span><h2>{section.name}</h2><span className="collection-link">Open collection <span aria-hidden="true">↗</span></span></button>
+          <div className="row-actions"><button className="btn btn--small btn--icon" disabled={busy || index === 0} aria-label={`Move ${section.name} up`} onClick={() => void move(index, -1, true)}>↑</button><button className="btn btn--small btn--icon" disabled={busy || index === sections.length - 1} aria-label={`Move ${section.name} down`} onClick={() => void move(index, 1, true)}>↓</button><button className="btn btn--small" disabled={busy} onClick={() => setSectionDraft({ id: section.id, name: section.name, type: section.type })}>Rename</button><button className="btn btn--small btn--danger" disabled={busy} onClick={() => void deleteSection(section)}>Delete</button></div>
+        </li>)}</ul>}
+      </>}
+    </>}
+    <footer className="page-footer">A space for reading, listening &amp; reflection.</footer>
+  </main>;
 }

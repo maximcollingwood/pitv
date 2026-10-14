@@ -1,6 +1,6 @@
 # Managed by Ansible — edit the template, not this file.
 [Unit]
-Description=PITV library catalog API
+Description=PiTV content, controls and media preparation
 After=network.target
 
 [Service]
@@ -9,11 +9,21 @@ Group={{ backend_user }}
 WorkingDirectory={{ backend_root }}
 Environment=PORT={{ backend_port }}
 Environment=DB_PATH={{ db_path }}
+Environment=DB_SCHEMA_DIR={{ backend_root }}/db
+Environment=YTDLP_PATH={{ media_tools_root }}/bin/yt-dlp
+Environment=MEDIA_CACHE_DIR={{ db_dir }}/media
+Environment=MEDIA_CACHE_LIMIT_MB={{ media_cache_limit_mb }}
+Environment=MEDIA_MAX_ASSET_MB={{ media_max_asset_mb }}
+Environment=MEDIA_QUEUE_LIMIT={{ media_queue_limit }}
 EnvironmentFile=-/etc/kiosk/admin.env
-EnvironmentFile=-/etc/kiosk/youtube.env
+EnvironmentFile=-/etc/kiosk/media.env
 ExecStart=/usr/bin/node {{ backend_root }}/dist/index.js
 Restart=always
 RestartSec=2
+TimeoutStopSec=15
+KillMode=control-group
+UMask=0022
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
