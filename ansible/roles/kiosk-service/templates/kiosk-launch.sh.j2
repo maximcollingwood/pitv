@@ -12,4 +12,9 @@ export XDG_RUNTIME_DIR="/run/user/{{ kiosk_uid }}"
 export XCURSOR_THEME=blank
 export XCURSOR_SIZE=1
 
+# A previous session's relaunch loop and app can outlive a service restart (they
+# run in the login session scope). Stop them so only one player runs.
+pkill -u "$(id -u)" -f '^/bin/sh /usr/local/bin/kiosk-app.sh' || true
+pkill -u "$(id -u)" -x pitv-native || true
+
 exec labwc -C /etc/kiosk/labwc

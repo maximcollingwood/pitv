@@ -8,7 +8,11 @@ export PITV_API_URL="http://127.0.0.1:{{ backend_port }}"
 export QT_QPA_PLATFORM=xcb
 export QSG_RHI_BACKEND=opengl
 export QT_QUICK_CONTROLS_STYLE=Basic
-while true; do
+# labwc's children live in the login session, not kiosk.service, so a service
+# restart does not stop this loop. Exit once the compositor that started it is
+# gone (labwc exports LABWC_PID to the processes it launches).
+compositor=${LABWC_PID:-}
+while [ -z "$compositor" ] || kill -0 "$compositor" 2>/dev/null; do
   /usr/local/bin/pitv-native
   sleep 2
 done
