@@ -36,7 +36,8 @@ npm ci
 npm run dev
 ```
 
-The API listens on port 3000. Open `http://localhost:5173/remote` or `/admin`.
+The API listens on `127.0.0.1:3000` (set `HOST` to expose it elsewhere); on the Pi,
+nginx is the only network entry point. Open `http://localhost:5173/remote` or `/admin`.
 The default development PIN is `0000`. Remote navigation becomes available when
 the native app sends its heartbeat. The web companion has no TV preview route.
 

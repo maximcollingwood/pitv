@@ -22,6 +22,9 @@ export interface MediaOptions {
   ytdlpPath?: string; ffmpegPath?: string; ffprobePath?: string; runner?: ProcessRunner;
   onEvent?: (event: unknown) => void;
 }
+// Library reconciliation also runs when a full queue drains; this interval only
+// catches stale playlists (refreshed after six hours) on an otherwise idle device.
+const RECONCILE_INTERVAL_MS = 15 * 60 * 1000;
 function envNumber(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -46,6 +49,7 @@ export class MediaManager {
   private controller?: AbortController;
   private stopped = false;
   private lastRefill = 0;
+  private refillNeeded = false;
   private leases = new Map<string, number>();
   constructor(private readonly db: Database.Database, options: MediaOptions) {
     this.cacheDir = resolve(options.cacheDir);
@@ -101,7 +105,12 @@ export class MediaManager {
   }
   private cacheBytes() { return (this.db.prepare("SELECT COALESCE(SUM(bytes),0) AS n FROM media_assets WHERE status='ready'").get() as { n: number }).n; }
   private pendingCount() { return (this.db.prepare("SELECT (SELECT COUNT(*) FROM media_assets WHERE status IN ('queued','downloading')) + (SELECT COUNT(*) FROM media_playlists WHERE status IN ('queued','downloading')) AS n").get() as { n: number }).n; }
-  private checkQueue() { if (this.pendingCount() >= this.queueLimit) throw new Error("Media preparation queue is full. Try again after current imports finish."); }
+  private checkQueue() {
+    if (this.pendingCount() < this.queueLimit) return;
+    // Library items skipped now are queued by the next reconciliation once a job frees space.
+    this.refillNeeded = true;
+    throw new Error("Media preparation queue is full. Try again after current imports finish.");
+  }
   private emit(key: string) { this.onEvent({ type: "media", asset: this.get(key) }); }
   prepare(url: unknown, kind: MediaKind, retry = false, accessed = true) {
     if (!["audio", "video"].includes(kind)) throw new Error("kind must be audio or video");
@@ -154,18 +163,56 @@ export class MediaManager {
     if (source.playlistId) return this.playlist(source.playlistId, false, false);
     return this.prepare(source.url, kind, false, false);
   }
+  private librarySources() {
+    return this.db.prepare("SELECT id,youtube_url,is_playlist,'video' AS kind FROM media_items UNION ALL SELECT id,youtube_url,0 AS is_playlist,'audio' AS kind FROM background_tracks").all() as { id: number; youtube_url: string; is_playlist: number; kind: MediaKind }[];
+  }
+  /**
+   * Reconcile the library with the queue: canonicalize legacy links, queue anything
+   * not yet prepared and refresh stale playlists. Rows are only rewritten when their
+   * link changes, so an unchanged library costs no writes.
+   */
   queueExisting() {
-    const rows = this.db.prepare("SELECT id,youtube_url,is_playlist,'video' AS kind FROM media_items UNION ALL SELECT id,youtube_url,0 AS is_playlist,'audio' AS kind FROM background_tracks").all() as { id: number; youtube_url: string; is_playlist: number; kind: MediaKind }[];
-    for (const row of rows) {
+    this.lastRefill = Date.now();
+    this.refillNeeded = false;
+    for (const row of this.librarySources()) {
       if (!row.youtube_url) continue;
       try {
         const source = normalizeYouTube(row.youtube_url, row.is_playlist === 1);
         if (row.kind === "audio" && source.playlistId) continue;
-        if (row.kind === "video") this.db.prepare("UPDATE media_items SET youtube_url=?,is_playlist=? WHERE id=?").run(source.url, source.playlistId ? 1 : 0, row.id);
-        else this.db.prepare("UPDATE background_tracks SET youtube_url=? WHERE id=?").run(source.url, row.id);
+        const playlist = source.playlistId ? 1 : 0;
+        if (row.kind === "video" && (source.url !== row.youtube_url || playlist !== row.is_playlist)) this.db.prepare("UPDATE media_items SET youtube_url=?,is_playlist=? WHERE id=?").run(source.url, playlist, row.id);
+        else if (row.kind === "audio" && source.url !== row.youtube_url) this.db.prepare("UPDATE background_tracks SET youtube_url=? WHERE id=?").run(source.url, row.id);
         this.queueSource(source.url, row.kind);
-      } catch { /* Bad URLs remain editable; full queues refill after pending work drains. */ }
+      } catch { /* Bad URLs remain editable; a full queue sets refillNeeded. */ }
     }
+  }
+  /**
+   * Cancel queued and failed jobs that no media item, background track or library
+   * playlist references any more. Called when the library drops or replaces a link.
+   * Ready files stay as cache (evicted by age) and an in-flight download finishes.
+   */
+  pruneOrphans() {
+    const keys = new Set<string>(), playlists = new Set<string>();
+    for (const row of this.librarySources()) {
+      try {
+        const source = normalizeYouTube(row.youtube_url, row.is_playlist === 1);
+        if (source.playlistId) playlists.add(source.playlistId);
+        else keys.add(`${row.kind}-${source.videoId}`);
+      } catch { /* an invalid link references nothing */ }
+    }
+    for (const row of this.db.prepare("SELECT id,videos FROM media_playlists").all() as { id: string; videos: string }[]) {
+      if (playlists.has(row.id)) for (const video of JSON.parse(row.videos) as { id: string }[]) keys.add(`video-${video.id}`);
+    }
+    const assets = this.db.prepare("SELECT key FROM media_assets WHERE status IN ('queued','error')").all() as { key: string }[];
+    const lists = this.db.prepare("SELECT id FROM media_playlists WHERE status IN ('queued','error')").all() as { id: string }[];
+    const dropAsset = this.db.prepare("DELETE FROM media_assets WHERE key=? AND status IN ('queued','error')");
+    const dropPlaylist = this.db.prepare("DELETE FROM media_playlists WHERE id=? AND status IN ('queued','error')");
+    return this.db.transaction(() => {
+      let removed = 0;
+      for (const { key } of assets) if (!keys.has(key)) removed += dropAsset.run(key).changes;
+      for (const { id } of lists) if (!playlists.has(id)) removed += dropPlaylist.run(id).changes;
+      return removed;
+    })();
   }
   start() {
     if (this.timer) return;
@@ -188,7 +235,7 @@ export class MediaManager {
     try { await this.active; } finally { this.active = undefined; }
   }
   private async work() {
-    if (Date.now() - this.lastRefill > 30000) { this.lastRefill = Date.now(); this.queueExisting(); }
+    if ((this.refillNeeded && this.pendingCount() < this.queueLimit) || Date.now() - this.lastRefill > RECONCILE_INTERVAL_MS) this.queueExisting();
     const playlist = this.db.prepare("SELECT * FROM media_playlists WHERE status='queued' AND next_attempt<=? ORDER BY priority DESC,created_at LIMIT 1").get(Date.now()) as PlaylistRow | undefined;
     const asset = this.db.prepare("SELECT * FROM media_assets WHERE status='queued' AND next_attempt<=? ORDER BY priority DESC,created_at,key LIMIT 1").get(Date.now()) as AssetRow | undefined;
     if (!playlist && !asset) return;

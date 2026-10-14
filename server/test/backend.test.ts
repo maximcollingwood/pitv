@@ -345,6 +345,61 @@ test("live device stream delivers navigation, settings, background, volume, and 
   } finally { await reader?.cancel(); await app.close(); temp.cleanup(); }
 });
 
+test("removed or changed library links cancel pending imports while prepared files stay cached", async () => {
+  const temp = temporary();
+  const { app, media } = createApp({ dbPath: join(temp.path, "library.db"), seed: false, logger: false, startWorker: false, adminPin: "1234", media: { runner: successfulRunner, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 } });
+  try {
+    const headers = { authorization: `Bearer ${(await app.inject({ method: "POST", url: "/api/admin/login", payload: { pin: "1234" } })).json().token}` };
+    const section = (await app.inject({ method: "POST", url: "/api/admin/sections", headers, payload: { type: "media", name: "Watch" } })).json();
+    const items = `/api/admin/sections/${section.id}/items`;
+    const add = async (youtube_url: string) => (await app.inject({ method: "POST", url: items, headers, payload: { youtube_url } })).json();
+    await add(URL);
+    const duplicate = await add(`https://youtu.be/${VIDEO}`);
+    const second = await add(`https://youtu.be/${VIDEO2}`);
+    await app.inject({ method: "DELETE", url: `${items}/${duplicate.id}`, headers });
+    assert.equal(media.get(`video-${VIDEO}`)?.status, "queued", "a link another item still uses stays queued");
+    await app.inject({ method: "PUT", url: `${items}/${second.id}`, headers, payload: { youtube_url: URL } });
+    assert.equal(media.get(`video-${VIDEO2}`), undefined, "replacing a link cancels the old import");
+    await media.tick();
+    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
+
+    const track = (await app.inject({ method: "POST", url: "/api/admin/background/tracks", headers, payload: { youtube_url: `https://youtu.be/${VIDEO2}` } })).json();
+    assert.equal(media.get(`audio-${VIDEO2}`)?.status, "queued");
+    await app.inject({ method: "DELETE", url: `/api/admin/background/tracks/${track.id}`, headers });
+    assert.equal(media.get(`audio-${VIDEO2}`), undefined);
+
+    await add("https://www.youtube.com/playlist?list=PLexample");
+    await media.tick();
+    assert.equal(media.get(`video-${VIDEO2}`)?.status, "queued", "playlist entries are referenced through their playlist");
+    media.queueExisting();
+    assert.equal(media.get(`video-${VIDEO2}`)?.status, "queued");
+    await app.inject({ method: "DELETE", url: `/api/admin/sections/${section.id}`, headers });
+    assert.equal(media.get(`video-${VIDEO2}`), undefined);
+    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready", "prepared files remain cached until evicted");
+    assert.equal(media.list().playlists.length, 1);
+  } finally { await app.close(); temp.cleanup(); }
+});
+
+test("library reconciliation refills when the queue drains and rewrites only changed links", async () => {
+  const temp = temporary();
+  const db = openDatabase(join(temp.path, "library.db"), false);
+  const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner: successfulRunner, queueLimit: 1, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
+  const changes = () => (db.prepare("SELECT total_changes() AS n").get() as { n: number }).n;
+  try {
+    db.prepare("INSERT INTO media_items(section_id,title,youtube_url) VALUES(1,'',?),(1,'',?)").run(`https://youtu.be/${VIDEO}?si=share`, `https://youtu.be/${VIDEO2}`);
+    db.prepare("INSERT INTO background_tracks(title,youtube_url) VALUES('',?)").run(`https://youtu.be/${VIDEO}?si=share`);
+    media.queueExisting();
+    assert.deepEqual((db.prepare("SELECT youtube_url FROM media_items UNION ALL SELECT youtube_url FROM background_tracks").all() as { youtube_url: string }[]).map(r => r.youtube_url),
+      [URL, `https://www.youtube.com/watch?v=${VIDEO2}`, URL]);
+    assert.equal(media.get(`video-${VIDEO2}`), undefined, "a full queue defers the rest of the library");
+    for (let i = 0; i < 3; i++) await media.tick();
+    for (const key of [`video-${VIDEO}`, `video-${VIDEO2}`, `audio-${VIDEO}`]) assert.equal(media.get(key)?.status, "ready", key);
+    const before = changes();
+    media.queueExisting();
+    assert.equal(changes(), before, "an unchanged library is reconciled without writes");
+  } finally { await media.close(); db.close(); temp.cleanup(); }
+});
+
 test("process runner aborts bounded subprocesses and does not launch an already cancelled job", async () => {
   const cancelled = new AbortController(); cancelled.abort();
   await assert.rejects(runProcess("does-not-exist", [], { signal: cancelled.signal }), /cancelled/);

@@ -338,6 +338,7 @@ app.register(async (admin) => {
         db.prepare(`DELETE FROM ${cfg.table} WHERE section_id = ?`).run(section.id);
       }
       db.prepare("DELETE FROM sections WHERE id = ?").run(section.id);
+      if (section.type === "media") media.pruneOrphans();
     }
     return reply.code(204).send();
   });
@@ -427,7 +428,7 @@ app.register(async (admin) => {
         ).run(...values, req.params.itemId, ctx.section.id);
       }
       if (prevCover && prevCover !== body.cover_url) unlinkUpload(prevCover);
-      if (ctx.section.type === "media" && body.youtube_url !== undefined) queueSaved(String(body.youtube_url), "video");
+      if (ctx.section.type === "media" && body.youtube_url !== undefined) { queueSaved(String(body.youtube_url), "video"); media.pruneOrphans(); }
       return db.prepare(`SELECT * FROM ${ctx.cfg.table} WHERE id = ? AND section_id=?`).get(req.params.itemId, ctx.section.id);
     },
   );
@@ -446,6 +447,7 @@ app.register(async (admin) => {
         req.params.itemId,
         ctx.section.id,
       );
+      if (ctx.section.type === "media") media.pruneOrphans();
       return reply.code(204).send();
     },
   );
@@ -503,7 +505,7 @@ app.register(async (admin) => {
               position    = COALESCE(?, position)
         WHERE id = ?`,
     ).run(title ?? null, youtube_url ?? null, position ?? null, req.params.id);
-    if (youtube_url) queueSaved(youtube_url, "audio");
+    if (youtube_url) { queueSaved(youtube_url, "audio"); media.pruneOrphans(); }
     const updated = db.prepare("SELECT * FROM background_tracks WHERE id = ?").get(req.params.id);
     broadcastBg();
     return updated;
@@ -513,6 +515,7 @@ app.register(async (admin) => {
     "/api/admin/background/tracks/:id",
     async (req, reply) => {
       db.prepare("DELETE FROM background_tracks WHERE id = ?").run(req.params.id);
+      media.pruneOrphans();
       // If the deleted track was selected, clear selection.
       if (bgState.trackId != null && String(bgState.trackId) === req.params.id) {
         bgState.trackId = null;
