@@ -1,7 +1,10 @@
 #include "Controller.h"
 #include "LyricsLayout.h"
 #include "SseParser.h"
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QSignalSpy>
+#include <QTemporaryFile>
 #include <QtTest>
 
 class CoreTests final : public QObject {
@@ -126,6 +129,20 @@ private slots:
         controller.start(TEST_FIXTURE);
         // Reserved characters are escaped so phones read the name and password intact.
         QCOMPARE(controller.wifiCode(), "WIFI:T:WPA;S:Lotus\\; Guest;P:hare\\:krishna;;");
+    }
+    void accentedLettersAreDecomposedExceptTheWifiPassword() {
+        QTemporaryFile fixture;
+        QVERIFY(fixture.open());
+        const QString title = QString::fromUtf8("\u015Ar\u012B K\u1E5B\u1E63\u1E47a");
+        const QString password = QString::fromUtf8("p\u0101ssword");
+        fixture.write(QJsonDocument(QJsonObject{{"config", QJsonObject{{"title", title}, {"sections", QJsonArray{}},
+            {"wifi", QJsonObject{{"ssid", "Guest"}, {"password", password}}}}}, {"items", QJsonObject{}}}).toJson());
+        fixture.close();
+        Controller controller;
+        controller.start(fixture.fileName());
+        QCOMPARE(controller.heading(), title.normalized(QString::NormalizationForm_D));
+        QVERIFY(controller.heading() != title);
+        QVERIFY(controller.wifiCode().contains(password));
     }
     void readerLyricsAndFaqControls() {
         Controller controller;

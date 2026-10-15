@@ -20,7 +20,7 @@
     "native:test": "ctest --test-dir native/build --output-on-failure",
     "vm:app": "npm --workspace app run dev:vm",
     "vm:tv:reload": "vagrant ssh -c \"sudo pkill -x pitv-native || true\"",
-    "vm:tv:rebuild": "vagrant ssh -c \"sudo cp -r /vagrant/native/CMakeLists.txt /vagrant/native/qml.qrc /vagrant/native/src /vagrant/native/qml /vagrant/native/tests /opt/pitv-native/src/ && sudo cmake --build /opt/pitv-native/build --parallel 4 && sudo cmake --install /opt/pitv-native/build && (sudo pkill -x pitv-native || true)\""
+    "vm:tv:rebuild": "vagrant ssh -c \"sudo cp -r /vagrant/native/CMakeLists.txt /vagrant/native/qml.qrc /vagrant/native/src /vagrant/native/qml /vagrant/native/fonts /vagrant/native/tests /opt/pitv-native/src/ && sudo cmake --build /opt/pitv-native/build --parallel 4 && sudo cmake --install /opt/pitv-native/build && (sudo pkill -x pitv-native || true)\""
   },
   "devDependencies": {
     "concurrently": "^10.0.0"

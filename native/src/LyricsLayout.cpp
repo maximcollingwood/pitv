@@ -1,4 +1,5 @@
 #include "LyricsLayout.h"
+#include "Fonts.h"
 #include <QFont>
 #include <QRegularExpression>
 #include <QTextLayout>
@@ -7,7 +8,7 @@
 
 namespace {
 qreal textHeight(const QString &text, qreal width, int pixels) {
-    QFont font(QStringLiteral("Noto Sans"));
+    QFont font(Fonts::body());
     font.setPixelSize(pixels);
     QTextLayout layout(text, font);
     QTextOption option;

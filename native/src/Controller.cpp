@@ -47,6 +47,27 @@ Controller::~Controller() {
 QString Controller::remoteUrl() const {
     return library_.value("info").toObject().value("remoteUrl").toString("http://pitv.local/remote");
 }
+namespace {
+// The bundled brand fonts cover Latin with combining accents but not most
+// precomposed IAST letters (ā, ī, ś, ṛ...). Decomposed into letter + accent,
+// titles and lyrics stay in the brand typeface instead of switching fonts
+// mid-word. The guest Wi-Fi password is left exactly as typed.
+QJsonValue decomposed(const QJsonValue &value) {
+    if (value.isString()) return value.toString().normalized(QString::NormalizationForm_D);
+    if (value.isArray()) {
+        QJsonArray out;
+        for (const auto &item : value.toArray()) out.append(decomposed(item));
+        return out;
+    }
+    if (value.isObject()) {
+        auto object = value.toObject();
+        for (auto it = object.begin(); it != object.end(); ++it)
+            if (it.key() != QLatin1String("wifi")) it.value() = decomposed(it.value());
+        return object;
+    }
+    return value;
+}
+}
 QString Controller::wifiCode() const {
     const auto wifi = library_.value("config").toObject().value("wifi").toObject();
     const auto ssid = wifi.value("ssid").toString(), password = wifi.value("password").toString();
@@ -111,7 +132,7 @@ void Controller::fetchLibrary() {
     });
 }
 void Controller::applyLibrary(const QJsonObject &object) {
-    library_ = object;
+    library_ = decomposed(object).toObject();
     volume_ = std::clamp(object.value("volume").toDouble(.05), 0., 1.);
     emit changeVolume(volume_); emit libraryChanged(); emit playbackChanged();
     rebuild(); syncBackground();
@@ -159,7 +180,7 @@ void Controller::event(const QJsonObject &object) {
         volume_ = std::clamp(object.value("level").toDouble(.05), 0., 1.);
         emit changeVolume(volume_); emit playbackChanged();
     } else if (type == "background") {
-        library_.insert("background", QJsonObject{{"tracks", object.value("tracks")}, {"state", object.value("state")}});
+        library_.insert("background", decomposed(QJsonObject{{"tracks", object.value("tracks")}, {"state", object.value("state")}}));
         syncBackground(); if (page() == "background") rebuild(); saveCache();
     } else if (type == "media") {
         const auto value = object.value("asset").toObject();
@@ -344,7 +365,7 @@ void Controller::fetchPlaylist(bool retry) {
     request("/api/playlist?list=" + QString::fromLatin1(QUrl::toPercentEncoding(id)) + (retry ? "&retry=1" : ""), nullptr,
         [this, id](const QJsonObject &object, const QString &error) {
             playlistPending_ = false;
-            if (error.isEmpty()) { playlists_.insert(id, object); saveCache(); }
+            if (error.isEmpty()) { playlists_.insert(id, decomposed(object)); saveCache(); }
             if (view_.page == "playlist" && view_.playlist == id) {
                 rebuild(); if (!error.isEmpty()) { notice_ = error + " Press Select to retry."; emit viewChanged(); }
             }

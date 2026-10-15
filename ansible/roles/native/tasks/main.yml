@@ -41,7 +41,7 @@
     src: "{{ playbook_dir }}/../native/{{ item }}"
     dest: "{{ native_root }}/src/{{ item }}"
     mode: preserve
-  loop: [CMakeLists.txt, qml.qrc, src/, qml/, tests/]
+  loop: [CMakeLists.txt, qml.qrc, src/, qml/, fonts/, tests/]
 
 - name: Configure native application
   ansible.builtin.command:

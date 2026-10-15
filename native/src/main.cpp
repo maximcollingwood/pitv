@@ -1,4 +1,5 @@
 #include "Controller.h"
+#include "Fonts.h"
 #include "MediaEngine.h"
 #include "QrProvider.h"
 #include <QGuiApplication>
@@ -54,6 +55,8 @@ int main(int argc, char **argv) {
     QObject::connect(media, &MediaEngine::ended, &controller, &Controller::mediaEnded);
     mediaThread.start();
     QQmlApplicationEngine engine;
+    Fonts::load();
+    engine.rootContext()->setContextProperty("brandFonts", Fonts::families());
     engine.rootContext()->setContextProperty("kiosk", &controller);
     engine.rootContext()->setContextProperty("videoEnabled", !smoke);
     engine.rootContext()->setContextProperty("startFullscreen", fullscreen);

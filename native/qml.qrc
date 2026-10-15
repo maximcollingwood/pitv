@@ -1,5 +1,14 @@
 <RCC><qresource prefix="/">
 <file>qml/Main.qml</file>
 <file>qml/VideoSurface.qml</file>
-<file>qml/Pill.qml</file>
+<file>qml/assets/lotus-gold.png</file>
+<file>qml/assets/lotus-purple.png</file>
+<file alias="fonts/raleway-v37-latin-regular.woff2">fonts/raleway-v37-latin-regular.woff2</file>
+<file alias="fonts/raleway-v37-latin-500.woff2">fonts/raleway-v37-latin-500.woff2</file>
+<file alias="fonts/raleway-v37-latin-600.woff2">fonts/raleway-v37-latin-600.woff2</file>
+<file alias="fonts/raleway-v37-latin-700.woff2">fonts/raleway-v37-latin-700.woff2</file>
+<file alias="fonts/parkinsans-v3-latin-500.woff2">fonts/parkinsans-v3-latin-500.woff2</file>
+<file alias="fonts/parkinsans-v3-latin-600.woff2">fonts/parkinsans-v3-latin-600.woff2</file>
+<file alias="fonts/parkinsans-v3-latin-700.woff2">fonts/parkinsans-v3-latin-700.woff2</file>
+<file alias="fonts/fa-solid-900.woff2">fonts/fa-solid-900.woff2</file>
 </qresource></RCC>
