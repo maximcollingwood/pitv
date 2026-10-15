@@ -114,6 +114,10 @@ npm run vm:tv:rebuild
 The Pi itself always uses the QML compiled into its build. `vagrant provision`
 re-applies everything (server, companion and native app).
 
+For the phone companion, `npm run vm:app` serves it with live reload at
+`http://localhost:5173/remote`, talking to the VM's API through
+`http://localhost:8080`, so the remote drives the VM's TV.
+
 To work with real content, copy a Pi's database, uploaded images and prepared
 media into the VM. The Pi is only read; the VM's previous database is kept in
 `/var/lib/pitv/vm-before-pull-*.db`. Run from Git Bash with the VM running:

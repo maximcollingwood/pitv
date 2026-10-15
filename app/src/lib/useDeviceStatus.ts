@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage, type DeviceStatus } from "./api";
 
 export function useDeviceStatus() {
@@ -20,5 +20,7 @@ export function useDeviceStatus() {
     void refresh();
     return () => { controller.abort(); clearTimeout(timer); };
   }, []);
-  return { status, error };
+  // The live event stream pushes page changes sooner than the next poll.
+  const push = useCallback((next: DeviceStatus) => { setStatus(next); setError(null); }, []);
+  return { status, error, push };
 }

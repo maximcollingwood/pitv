@@ -326,90 +326,278 @@ ul {
   flex-shrink:0;
 }
 
-.remote-shell {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* ---- Remote: a fixed touch surface, no page scroll ---- */
+
+html.remote-mode,html.remote-mode body {
+  height:100%;
+  overflow:hidden;
+  overscroll-behavior:none;
+}
+
+.remote {
+  position:fixed;
+  inset:0;
   max-width:560px;
-}
-
-.remote-shell .page-intro {
-  padding-top:35px;
-}
-
-.remote-shell .page-intro h1 {
-  font-size:2.9rem;
-}
-
-.remote-controls {
-  padding:30px 20px 28px;
-}
-
-.dpad {
-  display:grid;
-  grid-template-columns:repeat(3,76px);
-  grid-template-rows:repeat(3,68px);
-  justify-content:center;
-  gap:7px;
-}
-
-.dpad button {
-  border:1px solid #d9ded0;
-  border-radius:20px;
-  background:#e8ecdf;
-  font-size:1.9rem;
-  line-height:1;
-  touch-action:manipulation;
-  transition:background .1s,transform .1s;
-}
-
-.dpad button:active:not(:disabled) {
-  background:#d0ddbb;
-  transform:scale(.96);
-}
-
-.dpad .dpad__up {
-  grid-area:1/2;
-}
-
-.dpad .dpad__left {
-  grid-area:2/1;
-}
-
-.dpad .dpad__select {
-  grid-area:2/2;
-  background:var(--green);
-  color:white;
-  font-size:.85rem;
-  border-color:var(--green);
-}
-
-.dpad .dpad__right {
-  grid-area:2/3;
-}
-
-.dpad .dpad__down {
-  grid-area:3/2;
-}
-
-.remote-shortcuts {
+  margin:0 auto;
   display:flex;
-  justify-content:center;
+  flex-direction:column;
+  gap:14px;
+  padding:max(10px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));
+}
+
+.remote__bar .text-link {
+  white-space:nowrap;
+}
+
+.remote__bar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
   gap:12px;
-  margin-top:23px;
+  min-height:44px;
 }
 
-.remote-shortcuts .btn {
-  min-width:117px;
+.remote__status {
+  white-space:nowrap;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  font-size:.8rem;
+  font-weight:600;
 }
 
-.remote-shortcuts span {
-  font-size:1.25rem;
+.remote__showing {
+  color:var(--muted);
+  font-weight:400;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
 }
 
-.sound-panel {
-  padding:23px;
+.remote__showing::before {
+  content:"·";
+  margin-right:8px;
 }
 
-.sound-panel .section-heading {
-  margin-bottom:25px;
+.touchpad {
+  position:relative;
+  flex:1;
+  min-height:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:28px;
+  background:#e8ecdf;
+  border:1px solid #d9ded0;
+  overflow:hidden;
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+  -webkit-touch-callout:none;
+  cursor:grab;
+  transition:background .2s;
+}
+
+.touchpad.is-touching {
+  background:#dfe6d2;
+  cursor:grabbing;
+}
+
+.touchpad.is-disabled {
+  opacity:.55;
+  cursor:default;
+}
+
+.touchpad__hint {
+  text-align:center;
+  padding:24px;
+  pointer-events:none;
+  transition:opacity .2s;
+}
+
+.touchpad.is-touching .touchpad__hint {
+  opacity:.35;
+}
+
+.touchpad__title {
+  font-family:var(--serif);
+  font-size:1.6rem;
+}
+
+.touchpad__detail {
+  margin-top:8px;
+  font-size:.85rem;
+  color:var(--muted);
+}
+
+.touchpad__finger {
+  position:absolute;
+  width:64px;
+  height:64px;
+  margin:-32px 0 0 -32px;
+  border-radius:50%;
+  background:rgba(49,92,66,.16);
+  pointer-events:none;
+}
+
+/* A chevron at the edge the focus moved toward, or a ring for a tap. */
+.touchpad__cue {
+  position:absolute;
+  pointer-events:none;
+  animation:cue .45s ease-out forwards;
+}
+
+.touchpad__cue--up,.touchpad__cue--down,.touchpad__cue--left,.touchpad__cue--right {
+  width:26px;
+  height:26px;
+  border:solid var(--green);
+  border-width:4px 4px 0 0;
+  border-radius:3px;
+}
+
+.touchpad__cue--up {
+  top:18px;
+  left:calc(50% - 13px);
+  transform:rotate(-45deg);
+}
+
+.touchpad__cue--right {
+  right:18px;
+  top:calc(50% - 13px);
+  transform:rotate(45deg);
+}
+
+.touchpad__cue--down {
+  bottom:18px;
+  left:calc(50% - 13px);
+  transform:rotate(135deg);
+}
+
+.touchpad__cue--left {
+  left:18px;
+  top:calc(50% - 13px);
+  transform:rotate(-135deg);
+}
+
+.touchpad__cue--select {
+  width:120px;
+  height:120px;
+  left:calc(50% - 60px);
+  top:calc(50% - 60px);
+  border:3px solid var(--green);
+  border-radius:50%;
+  animation-name:ring;
+}
+
+@keyframes cue {
+  from { opacity:1; }
+  to { opacity:0; }
+}
+
+@keyframes ring {
+  from { opacity:.9; scale:.6; }
+  to { opacity:0; scale:1.3; }
+}
+
+.remote__notice {
+  margin:0;
+}
+
+.remote__keys {
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;
+}
+
+.remote__key {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:2px;
+  min-height:64px;
+  padding:8px;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:var(--paper);
+  font-size:.8rem;
+  font-weight:600;
+  touch-action:manipulation;
+}
+
+.remote__key span {
+  font-size:1.35rem;
+  line-height:1.1;
+}
+
+.remote__key:active:not(:disabled) {
+  background:#e8ecdf;
+}
+
+.sheet-backdrop {
+  position:fixed;
+  inset:0;
+  z-index:10;
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  background:rgba(20,30,24,.35);
+}
+
+.sheet {
+  width:100%;
+  max-width:560px;
+  padding:20px 22px max(24px,env(safe-area-inset-bottom));
+  background:var(--paper);
+  border-radius:22px 22px 0 0;
+  box-shadow:0 -8px 30px rgba(0,0,0,.12);
+  animation:sheet-in .2s ease-out;
+}
+
+.sheet:focus {
+  outline:none;
+}
+
+.sheet__heading {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:20px;
+}
+
+.sheet__heading h2 {
+  font-family:var(--serif);
+  font-size:1.4rem;
+}
+
+@keyframes sheet-in {
+  from { transform:translateY(40px); opacity:0; }
+}
+
+.visually-hidden {
+  position:absolute;
+  width:1px;
+  height:1px;
+  overflow:hidden;
+  clip:rect(0 0 0 0);
+  white-space:nowrap;
 }
 
 .volume-label {
@@ -454,7 +642,7 @@ ul {
   flex-shrink:0;
 }
 
-.sound-panel input[type=range] {
+.sheet input[type=range] {
   width:100%;
   accent-color:var(--green);
   padding:0;
@@ -1022,26 +1210,8 @@ progress::-moz-progress-bar {
   .topbar .text-link {
     font-size:.77rem;
   }
-  .remote-shell .page-intro h1 {
-    font-size:2.65rem;
-  }
-  .remote-shell .page-intro {
-    padding:31px 0 24px;
-  }
   .eyebrow {
     font-size:.59rem;
-  }
-  .remote-controls {
-    padding:26px 10px;
-  }
-  .sound-panel {
-    padding:21px;
-  }
-  .sound-panel .section-heading h2 {
-    font-size:1.25rem;
-  }
-  .sound-panel .section-heading .eyebrow {
-    font-size:.56rem;
   }
   .admin-nav {
     margin-right:-20px;

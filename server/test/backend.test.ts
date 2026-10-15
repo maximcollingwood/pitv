@@ -326,6 +326,12 @@ test("live device stream delivers navigation, settings, background, volume, and 
     assert.equal((await next("library")).type, "library");
     await app.inject({ method: "POST", url: "/api/remote/press", payload: { action: "right" } });
     assert.equal((await next("remote")).action, "right");
+    await app.inject({ method: "POST", url: "/api/device/status", payload: { page: "player", title: "A talk", playing: true, position: 1 } });
+    const shown = await next("status");
+    assert.equal(shown.page, "player"); assert.equal(shown.playing, true); assert.equal(shown.connected, true);
+    await app.inject({ method: "POST", url: "/api/device/status", payload: { page: "player", title: "A talk", playing: true, position: 6 } });
+    await app.inject({ method: "POST", url: "/api/device/status", payload: { page: "player", title: "A talk", playing: false, position: 6 } });
+    assert.equal((await next("status")).playing, false, "a heartbeat with only a new position is not an event");
     const login = await app.inject({ method: "POST", url: "/api/admin/login", payload: { pin: "1234" } });
     const headers = { authorization: `Bearer ${login.json().token}` };
     const bg = await app.inject({ method: "POST", url: "/api/admin/background/tracks", headers, payload: { youtube_url: `${URL}&list=PLcontext` } });

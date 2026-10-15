@@ -18,6 +18,7 @@
     "native:configure": "cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release",
     "native:build": "cmake --build native/build --parallel 2",
     "native:test": "ctest --test-dir native/build --output-on-failure",
+    "vm:app": "npm --workspace app run dev:vm",
     "vm:tv:reload": "vagrant ssh -c \"sudo pkill -x pitv-native || true\"",
     "vm:tv:rebuild": "vagrant ssh -c \"sudo cp -r /vagrant/native/CMakeLists.txt /vagrant/native/qml.qrc /vagrant/native/src /vagrant/native/qml /vagrant/native/tests /opt/pitv-native/src/ && sudo cmake --build /opt/pitv-native/build --parallel 4 && sudo cmake --install /opt/pitv-native/build && (sudo pkill -x pitv-native || true)\""
   },

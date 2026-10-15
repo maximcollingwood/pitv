@@ -120,9 +120,14 @@ export function createApp(options: AppOptions = {}) {
     if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.ip)) return reply.code(403).send({ error: "Only the local player can publish status" });
     const body = req.body ?? {};
     const seconds = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+    const previous = status();
     deviceStatus = { page: String(body.page ?? "home").slice(0, 100), title: String(body.title ?? "").slice(0, 500), playing: body.playing === true,
       position: seconds(body.position), duration: seconds(body.duration), error: String(body.error ?? "").slice(0, 1000), updatedAt: Date.now() };
-    return status();
+    // Phones follow what the screen shows (the remote's hints change in the player).
+    // Position alone changes every heartbeat, so it does not trigger an event.
+    const current = status();
+    if (!previous.connected || (["page", "title", "playing", "error"] as const).some(key => previous[key] !== current[key])) deviceEvents.publish({ type: "status", ...current });
+    return current;
   });
   app.post<{ Body: { action?: string } }>("/api/remote/press", async (req, reply) => {
     const action = req.body?.action;

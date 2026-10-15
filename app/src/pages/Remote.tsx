@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { DeviceStatusCard } from "../components/DeviceCard";
-import { api, errorMessage, type BgState, type BgTrack, type RemoteAction } from "../lib/api";
+import { SoundSheet } from "../components/SoundSheet";
+import { TouchPad } from "../components/TouchPad";
+import { api, errorMessage, type BgState, type BgTrack, type DeviceStatus, type RemoteAction } from "../lib/api";
 import { useDeviceStatus } from "../lib/useDeviceStatus";
+
+// What a swipe or tap does on the page the screen is showing.
+function padHint(status: DeviceStatus | null, offline: boolean) {
+  if (offline) return { title: "Waiting for the screen", detail: "The pad comes back when the screen reconnects." };
+  if (status?.page === "player") return { title: status.playing ? "Tap to pause" : "Tap to play", detail: "Swipe left or right to skip 10 seconds, up or down for volume." };
+  if (status?.page === "lyrics") return { title: "Swipe up or down to scroll", detail: "Swipe left or right for the next song." };
+  if (status?.page === "reader" || status?.page === "book") return { title: "Swipe up or down to read", detail: "Keep swiping up at the top to reach the menu." };
+  return { title: "Swipe to move", detail: "Tap anywhere to select." };
+}
 
 export function Remote() {
   const connection = useDeviceStatus();
@@ -13,6 +23,8 @@ export function Remote() {
   const [volume, setVolume] = useState<number | null>(null);
   const [live, setLive] = useState(false);
   const [backgroundBusy, setBackgroundBusy] = useState(false);
+  const [soundOpen, setSoundOpen] = useState(false);
+  const presses = useRef<Promise<void>>(Promise.resolve());
   const volumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const volumeRevision = useRef(0);
   const volumeWriting = useRef(false);
@@ -20,6 +32,13 @@ export function Remote() {
   const backgroundRevision = useRef(0);
   const tracksRevision = useRef(0);
   const mounted = useRef(false);
+
+  const { push } = connection;
+  useEffect(() => {
+    // A remote is a fixed surface: no page scroll, pull-to-refresh or bounce.
+    document.documentElement.classList.add("remote-mode");
+    return () => document.documentElement.classList.remove("remote-mode");
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -54,6 +73,7 @@ export function Remote() {
           if (message.tracks) { tracksRevision.current++; setTracks(message.tracks); }
           if (message.state) { backgroundRevision.current++; setBackground(message.state); }
         }
+        if (message.type === "status") push(message as DeviceStatus);
         if (message.type === "volume" && !volumeWriting.current && pendingVolume.current === null) { volumeRevision.current++; setVolume(message.level); }
       } catch { /* Ignore incomplete or unknown event frames. */ }
     };
@@ -66,14 +86,12 @@ export function Remote() {
       volumeTimer.current = null;
       pendingVolume.current = null;
     };
-  }, []);
+  }, [push]);
 
-  async function press(action: RemoteAction) {
-    setError(null);
-    try {
-      await api.press(action);
-      navigator.vibrate?.(8);
-    } catch (failure) { setError(errorMessage(failure)); }
+  function press(action: RemoteAction) {
+    navigator.vibrate?.(8);
+    // One request at a time keeps a fast swipe's steps in order.
+    presses.current = presses.current.then(() => api.press(action)).then(() => setError(null), (failure) => setError(errorMessage(failure)));
   }
 
   async function changeBackground(next: Partial<BgState>) {
@@ -114,41 +132,28 @@ export function Remote() {
     volumeTimer.current = setTimeout(() => { volumeTimer.current = null; void flushVolume(); }, 150);
   }
 
-  const disabled = !connection.status?.connected;
-  return <main className="shell remote-shell">
-    <header className="topbar">
-      <Link className="wordmark" to="/remote"><span className="brand-mark" aria-hidden="true">✦</span> PiTV <span>COMPANION</span></Link>
-      <Link className="text-link" to="/admin">Edit library <span aria-hidden="true">↗</span></Link>
+  const { status, error: statusError } = connection;
+  const disabled = !status?.connected;
+  const hint = padHint(status, disabled);
+  const label = statusError ? "Library unreachable" : status?.connected ? "Screen connected" : status ? "Screen offline" : "Connecting…";
+  const problem = error || syncError || (status?.connected ? status.error : null);
+  return <main className="remote">
+    <header className="remote__bar">
+      <div className="remote__status" role="status">
+        <span className={`status-dot ${status?.connected ? "is-online" : ""}`} />
+        <span>{label}</span>
+        {status?.connected && status.title && <span className="remote__showing">{status.title}</span>}
+      </div>
+      <Link className="text-link" to="/admin">Edit library</Link>
     </header>
-    <div className="page-intro"><p className="eyebrow">A little closer to your library</p><h1>Take a moment.<br /><em>Explore together.</em></h1></div>
-    <DeviceStatusCard connection={connection} />
-    {(error || syncError) && <p className="notice notice--error" role="alert">{error || syncError}<button className="text-link" onClick={() => { setError(null); setSyncError(null); }}>Dismiss</button></p>}
-    <section className="remote-controls" aria-label="TV navigation">
-      <div className="dpad">
-        <button className="dpad__up" disabled={disabled} onClick={() => void press("up")} aria-label="Move up">↑</button>
-        <button className="dpad__left" disabled={disabled} onClick={() => void press("left")} aria-label="Move left">←</button>
-        <button className="dpad__select" disabled={disabled} onClick={() => void press("select")} aria-label="Select highlighted item">Select</button>
-        <button className="dpad__right" disabled={disabled} onClick={() => void press("right")} aria-label="Move right">→</button>
-        <button className="dpad__down" disabled={disabled} onClick={() => void press("down")} aria-label="Move down">↓</button>
-      </div>
-      <div className="remote-shortcuts"><button className="btn" disabled={disabled} onClick={() => void press("back")}><span aria-hidden="true">↶</span> Back</button><button className="btn" disabled={disabled} onClick={() => void press("home")}><span aria-hidden="true">⌂</span> Home</button></div>
-    </section>
-    <section className="panel sound-panel" aria-labelledby="sound-title">
-      <div className="section-heading"><h2 id="sound-title">Set the atmosphere</h2><span className="eyebrow">SOUND</span></div>
-      <label className="volume-label" htmlFor="volume">Screen volume <output>{volume === null ? "—" : `${Math.round(volume * 100)}%`}</output></label>
-      <input id="volume" type="range" min="0" max="100" step="1" value={Math.round((volume ?? 0) * 100)} disabled={volume === null} onChange={(event) => changeVolume(Number(event.target.value) / 100)} />
-      <div className="background-picker">
-        <label htmlFor="background">Background audio</label>
-        <div className="inline-controls">
-          <select id="background" value={background.trackId ?? ""} disabled={backgroundBusy} onChange={(event) => void changeBackground({ trackId: event.target.value ? Number(event.target.value) : null, playing: Boolean(event.target.value) })}>
-            <option value="">No background audio</option>
-            {tracks.map((track) => <option key={track.id} value={track.id}>{track.title || "Preparing audio…"}</option>)}
-          </select>
-          <button className="btn" disabled={backgroundBusy || background.trackId === null} onClick={() => void changeBackground({ playing: !background.playing })}>{backgroundBusy ? "Saving…" : background.playing ? "Pause" : "Play"}</button>
-        </div>
-        <p className="small muted">{live ? "Sound settings are shared with the screen." : "Reconnecting live updates…"}</p>
-      </div>
-    </section>
-    <footer className="page-footer">A space for reading, listening &amp; reflection.</footer>
+    <TouchPad disabled={disabled} title={hint.title} detail={hint.detail} onAction={press} />
+    {problem && <p className="notice notice--error remote__notice" role="alert">{problem}{(error || syncError) && <button className="text-link" onClick={() => { setError(null); setSyncError(null); }}>Dismiss</button>}</p>}
+    <nav className="remote__keys" aria-label="Screen shortcuts">
+      <button className="remote__key" disabled={disabled} onClick={() => press("back")}><span aria-hidden="true">↶</span>Back</button>
+      <button className="remote__key" disabled={disabled} onClick={() => press("home")}><span aria-hidden="true">⌂</span>Home</button>
+      <button className="remote__key" aria-haspopup="dialog" onClick={() => setSoundOpen(true)}><span aria-hidden="true">♪</span>Sound</button>
+    </nav>
+    {soundOpen && <SoundSheet volume={volume} tracks={tracks} background={background} busy={backgroundBusy} live={live}
+      onVolume={changeVolume} onBackground={(next) => void changeBackground(next)} onClose={() => setSoundOpen(false)} />}
   </main>;
 }
