@@ -138,12 +138,22 @@ video cache. The admin PIN is not copied: the VM keeps its own in
    the repository/ref containing this rewrite.
 3. Run the repository's `bootstrap.sh` with the same repository and branch, then reboot.
 
-For an existing installation, deploy only after the native build and tests pass:
+For an existing installation, deploy only after the native build and tests pass.
+The admin page's **System** tab updates from `kiosk_repo_branch` (Update now), shows
+the running version, the screen and device health (temperature, power supply,
+storage, network), and restarts the screen app, restarts or shuts down the Pi.
+From a shell:
 
 ```sh
 sudo update-kiosk
 sudo reboot
 ```
+
+The backend stays unprivileged: the System tab writes one word into
+`/var/lib/pitv/system/request`, and the root `pitv-system.path` unit acts only on
+`update`, `restart-screen`, `reboot` and `poweroff`. Each update's output is in
+`/var/log/pitv-update.log`. The development VM sets `kiosk_self_update: false`
+(it is provisioned from the shared folder instead).
 
 The playbook creates `/var/lib/pitv/pre-native-rewrite.db` once before migrating an
 existing database. SQLite's backup includes committed WAL data. Content, settings,

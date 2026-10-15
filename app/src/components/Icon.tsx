@@ -15,6 +15,7 @@ const GLYPHS = {
   "lock": "",
   "music": "",
   "plus": "",
+  "power-off": "",
   "rotate-left": "",
   "volume-high": "",
   "xmark": "",

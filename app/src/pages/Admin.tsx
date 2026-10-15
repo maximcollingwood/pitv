@@ -7,9 +7,10 @@ import { DeviceCard } from "../components/DeviceCard";
 import { Icon, type IconName } from "../components/Icon";
 import { MediaPreparation } from "../components/MediaPreparation";
 import { ScreenSettings } from "../components/ScreenSettings";
+import { SystemPanel } from "../components/SystemPanel";
 import { api, ApiError, clearToken, errorMessage, getToken, setToken, type Item, type Section, type SectionType } from "../lib/api";
 
-type View = "library" | "background" | "preparation" | "settings";
+type View = "library" | "background" | "preparation" | "settings" | "system";
 type SectionDraft = { id?: number; name: string; type: SectionType };
 const BG_PATH = "/api/admin/background/tracks";
 const TYPE_ICON: Record<SectionType, IconName> = { articles: "book-open", lyrics: "music", media: "circle-play", catalog: "book", faq: "circle-question" };
@@ -120,7 +121,8 @@ export function Admin() {
   const title = sectionDraft ? sectionDraft.id ? "Rename section" : "A new collection"
     : editing ? editing.item ? "Make it yours" : view === "background" ? "Add background audio" : "Add to your collection"
     : active ? active.name : view === "background" ? "A little atmosphere"
-    : view === "preparation" ? "Ready when you are" : view === "settings" ? "Your screen, your space" : "A library worth exploring";
+    : view === "preparation" ? "Ready when you are" : view === "settings" ? "Your screen, your space"
+    : view === "system" ? "Behind the screen" : "A library worth exploring";
 
   return <main className={`shell admin-shell ${!token ? "login-shell" : ""}`}>
     <header className="topbar">
@@ -137,10 +139,10 @@ export function Admin() {
       </form>
     </> : <>
       <nav className="admin-nav" aria-label="Library administration">
-        {([['library', 'Library'], ['background', 'Background audio'], ['preparation', 'Media status'], ['settings', 'Screen settings']] as [View, string][]).map(([id, label]) => <button key={id} className={view === id ? "is-active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => navigate(id)}>{label}</button>)}
+        {([['library', 'Library'], ['background', 'Background audio'], ['preparation', 'Media status'], ['settings', 'Screen settings'], ['system', 'System']] as [View, string][]).map(([id, label]) => <button key={id} className={view === id ? "is-active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => navigate(id)}>{label}</button>)}
         <button className="sign-out" onClick={signOut}><Icon name="lock" />Lock</button>
       </nav>
-      <div className="admin-heading"><div className="page-intro"><p className="eyebrow">{active ? TYPE_LABEL[active.type] : "CURATED BY YOU"}</p><h1>{title}</h1></div><DeviceCard compact /></div>
+      <div className="admin-heading"><div className="page-intro"><p className="eyebrow">{active ? TYPE_LABEL[active.type] : view === "system" ? "STATUS, UPDATES & RESTARTS" : "CURATED BY YOU"}</p><h1>{title}</h1></div><DeviceCard compact /></div>
       {error && <p className="notice notice--error" role="alert">{error}<button className="text-link" onClick={() => { setError(null); refresh(); }}>Try again</button></p>}
       {message && !error && <p className="notice notice--success" role="status">{message}<button className="text-link" aria-label="Dismiss message" onClick={() => setMessage(null)}><Icon name="xmark" /></button></p>}
       {sectionDraft ? <form className="panel editor-form" onSubmit={(event) => void saveSection(event)}>
@@ -152,6 +154,7 @@ export function Admin() {
       </form> : editing && itemType ? <ContentEditor key={`${itemType}-${editing.item?.id ?? "new"}`} type={itemType} item={editing.item} onSave={saveItem} onCancel={() => setEditing(null)} onError={handleError} />
       : view === "settings" ? <ScreenSettings onError={handleError} onSaved={() => setMessage("Screen settings saved.")} />
       : view === "preparation" ? <MediaPreparation onError={handleError} />
+      : view === "system" ? <SystemPanel onError={handleError} />
       : itemPath ? <>
         <div className="section-heading list-toolbar">{active ? <button className="text-link" onClick={() => { setActive(null); setMessage(null); }}><Icon name="arrow-left" />All sections</button> : <p className="muted">Paste a YouTube link. We’ll take care of the rest.</p>}<button className="btn btn--primary" disabled={busy} onClick={() => { setEditing({ item: null }); setMessage(null); }}><Icon name="plus" />{view === "background" ? "Add audio" : "Add content"}</button></div>
         {loading ? <p role="status">Loading your collection…</p> : items.length === 0 ? <div className="empty-state"><img className="brand-mark" src={lotus} alt="" /><h2>A little room for inspiration</h2><p>Add the first {view === "background" ? "YouTube link" : "item"} to this collection.</p></div> : <ul className="content-list">{items.map((item, index) => <li className="content-row" key={item.id}>

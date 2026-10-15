@@ -1,5 +1,6 @@
 # Managed by Ansible — edit the template, not this file.
-# Shipped DISABLED. Enable with: sudo systemctl enable --now kiosk-update.timer
+# Started from the admin page's System tab, or by the timer (shipped DISABLED;
+# enable with: sudo systemctl enable --now kiosk-update.timer).
 [Unit]
 Description=Pull latest kiosk config and re-apply
 Wants=network-online.target
@@ -7,4 +8,11 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+# ansible-pull keeps its checkout under $HOME/.ansible/pull.
+Environment=HOME=/root
 ExecStart=/usr/local/bin/update-kiosk
+# The admin page shows the latest run's output from this file.
+StandardOutput=truncate:/var/log/pitv-update.log
+StandardError=inherit
+# Rebuilding the native app on a Pi 4 takes a while.
+TimeoutStartSec=45min

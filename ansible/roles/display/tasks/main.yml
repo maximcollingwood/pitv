@@ -71,6 +71,19 @@
   args:
     creates: /usr/share/icons/blank/cursors/default
 
+# X clients (the TV app runs on Xwayland) ask for cursors by name and, when the
+# theme lacks one, fall back to the system's visible arrow. Alias the common
+# names to the blank cursor too.
+- name: Alias common cursor names to the blank cursor
+  ansible.builtin.file:
+    src: default
+    dest: "/usr/share/icons/blank/cursors/{{ item }}"
+    state: link
+    owner: root
+    group: root
+  loop: [left_ptr, arrow, top_left_arrow, left_arrow, pointer, pointing_hand, hand1, hand2, text, xterm, ibeam,
+         watch, wait, progress, left_ptr_watch, crosshair, cross, grab, grabbing, move, fleur, not-allowed]
+
 # Hardware video decode + tear-free presentation both require the full KMS
 # driver (vc4-kms-v3d). Pi OS Bookworm ships with it enabled, but assert it
 # from config so a flashed image with the legacy fkms overlay still gets

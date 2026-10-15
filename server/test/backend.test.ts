@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { createApp } from "../src/app.js";
@@ -456,4 +456,43 @@ test("process runner aborts bounded subprocesses and does not launch an already 
   const signal = AbortSignal.timeout(100);
   await assert.rejects(runProcess(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { signal }), /cancelled/);
   assert.equal((await runProcess(process.execPath, ["-e", "process.stdout.write('hello')"], { signal: new AbortController().signal })), "hello");
+});
+
+test("system page reports health and hands only known actions to the root helper", async () => {
+  const temp = temporary();
+  const spool = join(temp.path, "system");
+  mkdirSync(spool);
+  const versionPath = join(temp.path, "version.json");
+  writeFileSync(versionPath, JSON.stringify({ commit: "abc123", date: "2026-10-14T10:00:00Z", subject: "Test", repo: "https://example.invalid/pitv.git", branch: "main", selfUpdate: true }));
+  writeFileSync(join(temp.path, "update.log"), "PLAY [Provision]\nok: [localhost]\n");
+  let running = false;
+  const run = async (command: string) => {
+    if (command === "systemctl") return `ActiveState=${running ? "activating" : "inactive"}\nResult=success\nExecMainStartTimestamp=@1792000000\nExecMainExitTimestamp=@1792000300\n`;
+    if (command === "git") return "def456\trefs/heads/main\n";
+    if (command === "vcgencmd") return "throttled=0x50000\n";
+    if (command === "nmcli") return "Library\\: Guest:802-11-wireless\nlo:loopback\n";
+    return null;
+  };
+  const { app } = createApp({ dbPath: join(temp.path, "library.db"), seed: false, logger: false, startWorker: false, adminPin: "1234",
+    system: { requestPath: join(spool, "request"), versionPath, updateLogPath: join(temp.path, "update.log"), run } });
+  try {
+    assert.equal((await app.inject("/api/admin/system")).statusCode, 401);
+    const headers = { authorization: `Bearer ${(await app.inject({ method: "POST", url: "/api/admin/login", payload: { pin: "1234" } })).json().token}` };
+    const page = (await app.inject({ url: "/api/admin/system", headers })).json();
+    assert.equal(page.version.commit, "abc123");
+    assert.deepEqual(page.update, { running: false, startedAt: 1792000000000, finishedAt: 1792000300000, succeeded: true });
+    assert.equal(page.device.wifi, "Library: Guest");
+    assert.deepEqual(page.device.power, { underVoltageNow: false, underVoltageSinceBoot: true, throttledNow: false, throttledSinceBoot: true });
+    assert.equal((await app.inject({ url: "/api/admin/system/latest", headers })).json().latest.commit, "def456");
+    assert.deepEqual((await app.inject({ url: "/api/admin/system/update-log", headers })).json().lines, ["PLAY [Provision]", "ok: [localhost]"]);
+    assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/format-disk", headers })).statusCode, 404);
+    assert.equal(existsSync(join(spool, "request")), false);
+    assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/restart-screen", headers })).statusCode, 202);
+    assert.equal(readFileSync(join(spool, "request"), "utf8"), "restart-screen");
+    running = true;
+    assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/update", headers })).statusCode, 409, "one update at a time");
+    writeFileSync(versionPath, JSON.stringify({ commit: "abc123", selfUpdate: false }));
+    running = false;
+    assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/update", headers })).statusCode, 409, "the VM updates through vagrant provision");
+  } finally { await app.close(); temp.cleanup(); }
 });

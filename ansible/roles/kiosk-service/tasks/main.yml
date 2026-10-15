@@ -97,6 +97,45 @@
     - kiosk-update.timer
   notify: Reload systemd
 
+# The admin page's System tab (update, restart, shut down). The backend writes
+# one word into this spool; pitv-system.path runs the root helper on it.
+- name: Create the system request spool (writable by the backend only)
+  ansible.builtin.file:
+    path: "{{ db_dir }}/system"
+    state: directory
+    owner: "{{ backend_user }}"
+    group: "{{ backend_user }}"
+    mode: "0755"
+
+- name: Install the system request helper
+  ansible.builtin.template:
+    src: pitv-system.j2
+    dest: /usr/local/sbin/pitv-system
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the system request units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - pitv-system.path
+    - pitv-system.service
+  notify: Reload systemd
+
+- name: Flush handlers before watching for system requests
+  ansible.builtin.meta: flush_handlers
+
+- name: Watch for system requests
+  ansible.builtin.systemd:
+    name: pitv-system.path
+    enabled: true
+    state: started
+
 - name: Boot to console (no graphical target needed)
   ansible.builtin.file:
     src: /lib/systemd/system/multi-user.target

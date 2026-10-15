@@ -22,6 +22,6 @@ Vagrant.configure("2") do |config|
     ansible.install_mode = "default"
     ansible.inventory_path = "ansible/inventory/localhost.yml"
     ansible.limit = "localhost"
-    ansible.extra_vars = { kiosk_display: "xorg", kiosk_qml_dir: "/vagrant/native/qml" }
+    ansible.extra_vars = { kiosk_display: "xorg", kiosk_qml_dir: "/vagrant/native/qml", kiosk_self_update: false }
   end
 end

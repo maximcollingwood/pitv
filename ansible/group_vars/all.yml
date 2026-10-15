@@ -19,6 +19,9 @@ media_queue_limit: 200
 
 kiosk_repo_url: "https://github.com/maximcollingwood/pitv.git"
 kiosk_repo_branch: main
+# The admin page can pull and re-apply this repo (update-kiosk). The development
+# VM is provisioned from the shared folder instead.
+kiosk_self_update: true
 kiosk_user: kiosk
 kiosk_uid: 1001
 kiosk_groups: [video, render, input, tty, audio]

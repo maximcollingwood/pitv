@@ -2,6 +2,7 @@
 #include "Fonts.h"
 #include "MediaEngine.h"
 #include "QrProvider.h"
+#include <QCursor>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -25,6 +26,9 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     QCoreApplication::setApplicationName("pitv-native");
     QCoreApplication::setOrganizationName("PiTV");
+    // A TV shows no pointer. A plugged-in mouse still works (moving it wakes the
+    // player controls); PITV_SHOW_CURSOR=1 brings the pointer back for debugging.
+    if (!qEnvironmentVariableIsSet("PITV_SHOW_CURSOR")) QGuiApplication::setOverrideCursor(QCursor(Qt::BlankCursor));
     const auto args = app.arguments();
     const bool smoke = args.contains("--smoke") || args.contains("--smoke-test");
     const bool verifyPlayback = args.contains("--verify-playback");

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Managed by Ansible — edit the template, not this file.
+# Carries out one request from the admin page's System tab. The backend runs
+# unprivileged (NoNewPrivileges), so it writes a single word into a spool file
+# and pitv-system.path starts this as root. Only the words below do anything;
+# the file's contents are never executed or echoed.
+set -u
+request="{{ db_dir }}/system/request"
+# A regular file only: a symlink or FIFO planted in the spool is just removed.
+if [ -L "$request" ] || [ ! -f "$request" ]; then rm -f "$request"; exit 0; fi
+action=$(head -c 32 "$request" | tr -cd 'a-z-')
+rm -f "$request"
+case "$action" in
+  update) exec systemctl start --no-block kiosk-update.service ;;
+  restart-screen) pkill -x pitv-native; exit 0 ;;
+  reboot) exec systemctl reboot ;;
+  poweroff) exec systemctl poweroff ;;
+  *) echo "Ignored an unknown request" >&2; exit 0 ;;
+esac

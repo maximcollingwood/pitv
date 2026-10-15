@@ -1,0 +1,10 @@
+# Managed by Ansible — edit the template, not this file.
+[Unit]
+Description=Watch for system requests from the PiTV admin page
+
+[Path]
+PathExists={{ db_dir }}/system/request
+Unit=pitv-system.service
+
+[Install]
+WantedBy=multi-user.target

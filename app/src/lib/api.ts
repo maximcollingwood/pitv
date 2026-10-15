@@ -33,6 +33,21 @@ export interface MediaPlaylist {
   error: string | null;
   videoCount: number;
 }
+export type SystemAction = "update" | "restart-screen" | "reboot" | "poweroff";
+export interface SystemStatus {
+  screen: DeviceStatus;
+  version: { commit: string | null; date: string | null; subject: string | null; branch: string | null; selfUpdate: boolean };
+  update: { running: boolean; startedAt: number | null; finishedAt: number | null; succeeded: boolean | null } | null;
+  device: {
+    hostname: string; uptimeSeconds: number; load: number;
+    memory: { totalBytes: number; freeBytes: number };
+    temperature: number | null;
+    power: { underVoltageNow: boolean; underVoltageSinceBoot: boolean; throttledNow: boolean; throttledSinceBoot: boolean } | null;
+    wifi: string | null; addresses: string[];
+    disk: { totalBytes: number; freeBytes: number } | null;
+  };
+}
+export interface LatestVersion { commit: string | null; checkedAt: number; error: string | null }
 export interface MediaLibrary { assets: MediaAsset[]; playlists: MediaPlaylist[]; cacheBytes: number; cacheLimitBytes: number }
 
 export class ApiError extends Error {
@@ -102,5 +117,10 @@ export const api = {
   adminDelete: (path: string, id: number) => request<null>(`${path}/${id}`, json("DELETE"), true),
   media: () => request<MediaLibrary>("/api/admin/media", {}, true),
   retryMedia: (key: string) => request<MediaAsset>(`/api/admin/media/${encodeURIComponent(key)}/retry`, json("POST"), true),
+  health: (signal?: AbortSignal) => request<{ status: string }>("/api/health", { signal }),
+  system: () => request<SystemStatus>("/api/admin/system", {}, true),
+  systemLatest: (force = false) => request<{ latest: LatestVersion | null }>(`/api/admin/system/latest${force ? "?force=1" : ""}`, {}, true),
+  updateLog: () => request<{ lines: string[] }>("/api/admin/system/update-log", {}, true),
+  systemAction: (action: SystemAction) => request<{ ok: boolean }>(`/api/admin/system/${action}`, json("POST"), true),
   retryPlaylist: (id: string) => request<unknown>(`/api/playlist?list=${encodeURIComponent(id)}&retry=1`),
 };

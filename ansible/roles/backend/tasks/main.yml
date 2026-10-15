@@ -84,6 +84,25 @@
   changed_when: false
   notify: Restart backend
 
+# The admin page's System tab shows which commit is running and whether the
+# branch has moved on (it compares against `git ls-remote`).
+- name: Read the deployed revision
+  ansible.builtin.command:
+    argv: [git, -c, safe.directory=*, -C, "{{ playbook_dir }}/..", log, -1, "--format=%H%n%cI%n%s"]
+  register: deployed_revision
+  changed_when: false
+  failed_when: false
+
+- name: Record the deployed revision
+  ansible.builtin.copy:
+    dest: "{{ backend_root }}/version.json"
+    owner: "{{ backend_user }}"
+    group: "{{ backend_user }}"
+    mode: "0644"
+    content: "{{ {'commit': revision[0] | default(''), 'date': revision[1] | default(''), 'subject': revision[2] | default(''), 'repo': kiosk_repo_url, 'branch': kiosk_repo_branch, 'selfUpdate': kiosk_self_update} | to_nice_json }}\n"
+  vars:
+    revision: "{{ deployed_revision.stdout_lines | default([]) if deployed_revision.rc | default(1) == 0 else [] }}"
+
 - name: Fix backend ownership after install/build
   ansible.builtin.file:
     path: "{{ backend_root }}"

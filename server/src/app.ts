@@ -9,10 +9,11 @@ import { MediaManager, type MediaOptions } from "./media.js";
 import { normalizeYouTube } from "./youtube.js";
 import { EventStream } from "./events.js";
 import { sendFile } from "./http-files.js";
+import { SYSTEM_ACTIONS, SystemControl, type SystemAction, type SystemOptions } from "./system.js";
 
 export interface AppOptions {
   dbPath?: string; uploadsDir?: string; adminPin?: string; seed?: boolean;
-  logger?: boolean; startWorker?: boolean; media?: Partial<MediaOptions>;
+  logger?: boolean; startWorker?: boolean; media?: Partial<MediaOptions>; system?: Partial<SystemOptions>;
 }
 const SECTION_TYPES: Record<string, { table: string; columns: string[]; orderBy: string }> = {
   articles: { table: "articles", columns: ["title", "body", "position"], orderBy: "position, title" },
@@ -35,6 +36,13 @@ export function createApp(options: AppOptions = {}) {
   mkdirSync(uploadsDir, { recursive: true });
   const deviceEvents = new EventStream(), remoteEvents = new EventStream(), backgroundEvents = new EventStream();
   const invalidate = () => deviceEvents.publish({ type: "library" });
+  const system = new SystemControl({
+    requestPath: process.env.SYSTEM_REQUEST_PATH ?? resolve(dirname(dbPath), "system/request"),
+    updateLogPath: process.env.UPDATE_LOG_PATH ?? "/var/log/pitv-update.log",
+    versionPath: process.env.VERSION_PATH ?? resolve(here, "../version.json"),
+    dataDir: dirname(dbPath),
+    ...options.system,
+  });
   const media = new MediaManager(db, {
     cacheDir: process.env.MEDIA_CACHE_DIR ?? resolve(dirname(dbPath), "media"), ...options.media,
     onEvent: event => { deviceEvents.publish(event); options.media?.onEvent?.(event); },
@@ -178,7 +186,27 @@ app.register(async (admin) => {
     if (!tokenValid(token)) return reply.code(401).send({ error: "unauthorized" });
   });
   admin.addHook("onResponse", async (req, reply) => {
-    if (["POST", "PUT", "DELETE"].includes(req.method) && reply.statusCode < 400) invalidate();
+    if (["POST", "PUT", "DELETE"].includes(req.method) && reply.statusCode < 400 && !req.url.startsWith("/api/admin/system")) invalidate();
+  });
+
+  // System page: status, updates and restarts.
+  admin.get("/api/admin/system", async () => {
+    const [update, device] = await Promise.all([system.updateState(), system.device()]);
+    return { screen: status(), version: system.version(), update, device };
+  });
+  // Separate because it waits on the network (git ls-remote).
+  admin.get<{ Querystring: { force?: string } }>("/api/admin/system/latest", async (req) => ({ latest: await system.latest(req.query.force === "1") }));
+  admin.get("/api/admin/system/update-log", async () => ({ lines: system.updateLog() }));
+  admin.post<{ Params: { action: string } }>("/api/admin/system/:action", async (req, reply) => {
+    const action = req.params.action as SystemAction;
+    if (!SYSTEM_ACTIONS.includes(action)) return reply.code(404).send({ error: "Unknown system action" });
+    if (action === "update") {
+      if (!system.version().selfUpdate) return reply.code(409).send({ error: "This machine does not update itself. In the development VM, run vagrant provision." });
+      if ((await system.updateState())?.running) return reply.code(409).send({ error: "An update is already running." });
+    }
+    if (!system.request(action)) return reply.code(503).send({ error: "System controls are not set up on this machine." });
+    app.log.info({ action }, "System action requested from the admin page");
+    return reply.code(202).send({ ok: true });
   });
   admin.get("/api/admin/media", async () => media.list());
   admin.post<{ Params: { key: string } }>("/api/admin/media/:key/retry", async (req, reply) => {
