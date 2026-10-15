@@ -259,6 +259,7 @@ void Controller::action(const QString &key, int columns) {
     if (key == "home") { home(); return; }
     if (key == "back") { back(); return; }
     if (view_.page == "player") {
+        emit playerActivity();
         if (key == "select") { if (!foreground_.error.isEmpty()) retry(); else emit toggleVideo(); }
         else if (key == "left" || key == "right") emit seekVideo(key == "left" ? -10 : 10);
         else if (key == "up" || key == "down") setVolume(volume_ + (key == "up" ? .05 : -.05));

@@ -187,12 +187,14 @@ private slots:
         controller.start(TEST_FIXTURE);
         QSignalSpy toggle(&controller, &Controller::toggleVideo);
         QSignalSpy seek(&controller, &Controller::seekVideo);
+        QSignalSpy activity(&controller, &Controller::playerActivity);
         controller.openIndex(2); controller.openIndex(0); controller.openIndex(0);
         controller.action("select"); QCOMPARE(toggle.count(), 1);
         controller.action("left"); QCOMPARE(seek.takeFirst().first().toDouble(), -10.);
         controller.action("right"); QCOMPARE(seek.takeFirst().first().toDouble(), 10.);
         controller.action("up"); QCOMPARE(controller.volume(), .20);
         controller.action("down"); QCOMPARE(controller.volume(), .15);
+        QCOMPARE(activity.count(), 5);
         controller.mediaState(true, true, 12, 60, {});
         QVERIFY(controller.playing());
         controller.mediaState(true, false, 12, 60, "Device disconnected");

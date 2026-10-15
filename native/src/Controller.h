@@ -95,6 +95,8 @@ signals:
     void toggleVideo();
     void seekVideo(double seconds);
     void changeVolume(double level);
+    // A key reached the player; the overlay shows its controls again.
+    void playerActivity();
 private:
     struct View { QString page = "home", heading, type, section, category, playlist; QVariantMap item; int selected = 0; };
     struct Preparation { QString source, error, loaded; QJsonObject asset; int generation = 0; bool pending = false; };

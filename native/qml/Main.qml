@@ -220,6 +220,18 @@ Window {
         }
         Item {
             id: playback; anchors.fill: parent; visible: scene.player
+            // Controls fade out while a video plays, like YouTube, and come back on
+            // any key, remote press or mouse movement. They stay up while paused,
+            // loading or failed.
+            property bool awake: true
+            readonly property bool hold: !kiosk.playing || kiosk.mediaStatus !== "ready" || kiosk.mediaError.length > 0
+            readonly property bool controlsShown: awake || hold
+            function wake() { awake = true; idle.restart() }
+            onHoldChanged: wake()
+            onVisibleChanged: if (visible) wake()
+            Timer { id: idle; interval: 3500; onTriggered: playback.awake = false }
+            Connections { target: kiosk; function onPlayerActivity() { playback.wake() } }
+            MouseArea { anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton; onPositionChanged: playback.wake() }
             Rectangle { anchors.fill: parent; color: "#101b19"; visible: kiosk.mediaStatus !== "ready" || kiosk.mediaError.length > 0 }
             Column {
                 anchors.centerIn: parent; width: 1080; spacing: 28; visible: kiosk.mediaStatus !== "ready" || kiosk.mediaError.length > 0
@@ -230,12 +242,16 @@ Window {
             }
             Rectangle {
                 x: 0; y: 0; width: parent.width; height: 133
+                opacity: playback.controlsShown ? 1 : 0; visible: opacity > 0
+                Behavior on opacity { NumberAnimation { duration: 300 } }
                 gradient: Gradient { GradientStop { position: 0; color: "#dd08100d" } GradientStop { position: 1; color: "transparent" } }
                 Text { x: 64; y: 44; width: parent.width - 300; text: kiosk.heading; color: "#f4f1e9"; font.family: "Noto Sans"; font.pixelSize: 30; elide: Text.ElideRight }
                 Pill { anchors.right: parent.right; anchors.rightMargin: 64; y: 38; label: "← Back"; onClicked: kiosk.back() }
             }
             Rectangle {
                 x: 0; y: parent.height - 150; width: parent.width; height: 150
+                opacity: playback.controlsShown ? 1 : 0; visible: opacity > 0
+                Behavior on opacity { NumberAnimation { duration: 300 } }
                 gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: "#ee08100d" } }
                 Rectangle { x: 64; y: 56; width: 1472; height: 4; radius: 2; color: "#60746a"; Rectangle { width: parent.width * (kiosk.duration > 0 ? kiosk.position / kiosk.duration : 0); height: 4; radius: 2; color: "#b8d99c" } }
                 Row { x: 64; y: 82; spacing: 24
