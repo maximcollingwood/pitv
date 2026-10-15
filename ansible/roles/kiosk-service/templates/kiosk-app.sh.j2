@@ -16,7 +16,23 @@ export PITV_QML_DIR="{{ kiosk_qml_dir }}"
 # restart does not stop this loop. Exit once the compositor that started it is
 # gone (labwc exports LABWC_PID to the processes it launches).
 compositor=${LABWC_PID:-}
+# Audio goes to HDMI explicitly. The connector is forced on (display role), so
+# the HDMI jack reads "unplugged" and WirePlumber never picks HDMI as the
+# default; the player targets the HDMI sink instead. No HDMI card (the VM):
+# use the default output.
+hdmi_sink() {
+  /usr/local/bin/kiosk-audio-setup.sh >/dev/null 2>&1
+  for _ in $(seq 1 20); do
+    sink=$(pactl list short sinks 2>/dev/null | awk '/hdmi-stereo/ { print $2; exit }')
+    [ -n "$sink" ] && { echo "$sink"; return; }
+    sleep 0.5
+  done
+}
 while [ -z "$compositor" ] || kill -0 "$compositor" 2>/dev/null; do
+  if pactl list short cards 2>/dev/null | grep -q hdmi; then
+    PITV_AUDIO_DEVICE=$(hdmi_sink)
+    export PITV_AUDIO_DEVICE
+  fi
   /usr/local/bin/pitv-native
   sleep 2
 done
