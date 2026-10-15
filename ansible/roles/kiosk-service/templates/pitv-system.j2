@@ -13,6 +13,7 @@ rm -f "$request"
 case "$action" in
   update) exec systemctl start --no-block kiosk-update.service ;;
   restart-screen) pkill -x pitv-native; exit 0 ;;
+  reset-audio) exec runuser -u {{ kiosk_user }} -- /usr/local/bin/kiosk-audio-reset.sh ;;
   reboot) exec systemctl reboot ;;
   poweroff) exec systemctl poweroff ;;
   *) echo "Ignored an unknown request" >&2; exit 0 ;;

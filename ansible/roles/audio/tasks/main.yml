@@ -79,6 +79,31 @@
         done
       fi
 
+# Some TVs (the library's Vizio V505-G9) drop HDMI audio after a display hiccup,
+# such as a hardware video decoder stall, and stay silent while the Pi keeps
+# sending sound. Restarting the HDMI audio output (profile off and on) sends the
+# TV a fresh audio stream and it plays again. The TV app runs this after a
+# playback failure; the admin System tab's "Reset sound" runs it on demand.
+- name: Install kiosk audio reset script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/kiosk-audio-reset.sh
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Restart the HDMI audio output so the TV picks the sound up again, then
+      # put every stream back on HDMI (kiosk-audio-setup.sh). Run as the kiosk user.
+      export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+      for sink in $(pactl list short sinks 2>/dev/null | awk '/hdmi-stereo/{print $2}'); do
+        card=$(echo "$sink" | sed -e 's/^alsa_output\./alsa_card./' -e 's/\.hdmi-stereo$//')
+        pactl set-card-profile "$card" off 2>/dev/null || true
+        sleep 1
+        pactl set-card-profile "$card" output:hdmi-stereo 2>/dev/null || true
+      done
+      sleep 1
+      exec /usr/local/bin/kiosk-audio-setup.sh
+
 - name: Install kiosk audio setup user service
   ansible.builtin.copy:
     dest: /etc/systemd/user/kiosk-audio-setup.service
@@ -89,6 +114,9 @@
       [Unit]
       Description=Configure HDMI audio output for the kiosk
       After=wireplumber.service pipewire.service
+      # Only the TV's session. Other logins (SSH) get their own PipeWire, which
+      # must not start reconfiguring the HDMI card.
+      ConditionUser={{ kiosk_user }}
 
       [Service]
       Type=oneshot

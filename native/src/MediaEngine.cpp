@@ -1,6 +1,8 @@
 #include "MediaEngine.h"
 #include <QDateTime>
 #include <QDebug>
+#include <QFileInfo>
+#include <QProcess>
 #include <algorithm>
 
 MediaEngine::MediaEngine(GstElement *sink, QObject *parent) : QObject(parent), sink_(sink) {
@@ -124,6 +126,18 @@ void MediaEngine::fail(Channel &ch, bool video, const QString &error) {
     qWarning().noquote() << (video ? "Video:" : "Background audio:") << error;
     publish(ch, video);
 }
+// A playback failure such as a hardware decoder stall can glitch the HDMI
+// output, and some TVs then drop the audio and stay silent although the Pi
+// keeps sending it. Restarting the HDMI audio output makes them pick it up
+// again. At most once a minute; the script exists only on provisioned systems.
+bool MediaEngine::resetAudio() {
+    const QString script = QStringLiteral("/usr/local/bin/kiosk-audio-reset.sh");
+    const auto now = QDateTime::currentMSecsSinceEpoch();
+    if (now - lastAudioReset_ < 60000 || !QFileInfo(script).isExecutable()) return false;
+    lastAudioReset_ = now;
+    qWarning().noquote() << "Restarting HDMI audio after a playback failure";
+    return QProcess::startDetached(script, {});
+}
 void MediaEngine::drain(Channel &ch, bool video) {
     if (!ch.playbin || closing_) return;
     while (auto *msg = gst_bus_pop(ch.bus)) {
@@ -136,6 +150,8 @@ void MediaEngine::drain(Channel &ch, bool video) {
             if (error) g_error_free(error);
             g_free(debug);
             fail(ch, video, description);
+            // Leave the reset time to finish before the retry opens a new stream.
+            if (resetAudio() && ch.retryAt) ch.retryAt = std::max(ch.retryAt, QDateTime::currentMSecsSinceEpoch() + 5000);
             break;
         }
         case GST_MESSAGE_EOS:

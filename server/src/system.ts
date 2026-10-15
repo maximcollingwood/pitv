@@ -9,7 +9,7 @@ import { dirname } from "node:path";
  * one-word requests in a spool file; a root-owned systemd path unit
  * (pitv-system.path, Ansible kiosk-service role) carries out only these words.
  */
-export const SYSTEM_ACTIONS = ["update", "restart-screen", "reboot", "poweroff"] as const;
+export const SYSTEM_ACTIONS = ["update", "restart-screen", "reset-audio", "reboot", "poweroff"] as const;
 export type SystemAction = typeof SYSTEM_ACTIONS[number];
 
 export interface SystemOptions {

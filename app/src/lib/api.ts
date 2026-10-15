@@ -33,7 +33,7 @@ export interface MediaPlaylist {
   error: string | null;
   videoCount: number;
 }
-export type SystemAction = "update" | "restart-screen" | "reboot" | "poweroff";
+export type SystemAction = "update" | "restart-screen" | "reset-audio" | "reboot" | "poweroff";
 export interface SystemStatus {
   screen: DeviceStatus;
   version: { commit: string | null; date: string | null; subject: string | null; branch: string | null; selfUpdate: boolean };

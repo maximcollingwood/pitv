@@ -489,6 +489,8 @@ test("system page reports health and hands only known actions to the root helper
     assert.equal(existsSync(join(spool, "request")), false);
     assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/restart-screen", headers })).statusCode, 202);
     assert.equal(readFileSync(join(spool, "request"), "utf8"), "restart-screen");
+    assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/reset-audio", headers })).statusCode, 202);
+    assert.equal(readFileSync(join(spool, "request"), "utf8"), "reset-audio");
     running = true;
     assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/update", headers })).statusCode, 409, "one update at a time");
     writeFileSync(versionPath, JSON.stringify({ commit: "abc123", selfUpdate: false }));

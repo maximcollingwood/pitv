@@ -151,7 +151,7 @@ sudo reboot
 
 The backend stays unprivileged: the System tab writes one word into
 `/var/lib/pitv/system/request`, and the root `pitv-system.path` unit acts only on
-`update`, `restart-screen`, `reboot` and `poweroff`. Each update's output is in
+`update`, `restart-screen`, `reset-audio`, `reboot` and `poweroff`. Each update's output is in
 `/var/log/pitv-update.log`. The development VM sets `kiosk_self_update: false`
 (it is provisioned from the shared folder instead).
 

@@ -39,9 +39,11 @@ private:
     bool ready_ = false, closing_ = false;
     double volume_ = .05;
     int ticks_ = 0;
+    qint64 lastAudioReset_ = 0;
     bool build(Channel &channel, bool video);
     void publish(const Channel &channel, bool video);
     void fail(Channel &channel, bool video, const QString &error);
     void drain(Channel &channel, bool video);
+    bool resetAudio();
     void destroy(Channel &channel);
 };

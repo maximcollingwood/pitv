@@ -110,6 +110,7 @@ export function SystemPanel({ onError }: { onError: (error: unknown) => void }) 
       await api.systemAction(action);
       if (action === "update") { previousRun.current = { startedAt: status?.update?.startedAt ?? null, requestedAt: Date.now() }; setPhase("updating"); setShowLog(true); setNotice("Updating. It usually takes 5 to 15 minutes; the screen restarts near the end."); }
       else if (action === "restart-screen") setNotice("The screen app restarts now and is back in a few seconds.");
+      else if (action === "reset-audio") setNotice("Sound restarts now; there are a few seconds of silence. If the TV stays quiet, check its volume and that it is on the Pi's input.");
       else if (action === "reboot") { setPhase("restarting"); setNotice("Restarting the Pi. This page reconnects when it is back, in about a minute."); }
       else { setPhase("off"); setNotice("Shutting down. When the screen goes dark (about 20 seconds) it is safe to unplug. Plug it back in to turn it on."); }
     } catch (failure) { fail(failure); }
@@ -130,7 +131,11 @@ export function SystemPanel({ onError }: { onError: (error: unknown) => void }) 
         <div className="section-heading"><h2 id="system-screen">Screen</h2><span className="status-line"><span className={`status-dot ${screen.connected ? "is-online" : ""}`} />{screen.connected ? "Connected" : "Offline"}</span></div>
         <p className="muted">{screen.connected ? `Showing ${screen.title || "the library"}${screen.playing ? ", playing" : ""}.` : "The screen app is not responding. Restarting it usually helps."}</p>
         {screen.error && <p className="notice notice--error">{screen.error}</p>}
-        <div className="form-actions"><button className="btn" disabled={offline} onClick={() => void act("restart-screen")}><Icon name="rotate-left" />Restart the screen app</button></div>
+        <div className="form-actions">
+          <button className="btn" disabled={offline} onClick={() => void act("restart-screen")}><Icon name="rotate-left" />Restart the screen app</button>
+          <button className="btn" disabled={offline} onClick={() => void act("reset-audio")}><Icon name="volume-high" />Reset sound</button>
+        </div>
+        <p className="small muted">No sound from the TV although something is playing? Reset sound restarts the Pi's audio output, which brings some TVs back after a glitch.</p>
       </section>
 
       <section className="panel system-card" aria-labelledby="system-software">
