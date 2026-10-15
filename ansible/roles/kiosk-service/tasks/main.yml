@@ -34,13 +34,23 @@
     mode: "0755"
   notify: Restart kiosk
 
-- name: Install kiosk launch script (starts labwc)
+- name: Install kiosk launch script (starts labwc, or X on the development VM)
   ansible.builtin.template:
     src: kiosk-launch.sh.j2
     dest: /usr/local/bin/kiosk-launch.sh
     owner: root
     group: root
     mode: "0755"
+  notify: Restart kiosk
+
+- name: Install development X session script
+  ansible.builtin.template:
+    src: kiosk-xsession.sh.j2
+    dest: /usr/local/bin/kiosk-xsession.sh
+    owner: root
+    group: root
+    mode: "0755"
+  when: kiosk_display == 'xorg'
   notify: Restart kiosk
 
 - name: Allow the kiosk user to switch VTs (console escape hatch)

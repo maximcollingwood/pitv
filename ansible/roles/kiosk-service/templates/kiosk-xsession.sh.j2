@@ -1,0 +1,11 @@
+#!/bin/sh
+# Managed by Ansible. Development VM X session: the VirtualBox window is the TV.
+set -u
+xset s off -dpms s noblank 2>/dev/null || true
+# Match the app's 1600x900 design canvas so layouts render 1:1.
+output=$(xrandr 2>/dev/null | awk '/ connected/ { print $1; exit }')
+if [ -n "$output" ] && ! xrandr --output "$output" --mode 1600x900 2>/dev/null; then
+  xrandr --newmode 1600x900_60.00 118.25 1600 1696 1856 2112 900 903 908 934 -hsync +vsync 2>/dev/null || true
+  xrandr --addmode "$output" 1600x900_60.00 2>/dev/null && xrandr --output "$output" --mode 1600x900_60.00 || true
+fi
+exec /usr/local/bin/kiosk-app.sh

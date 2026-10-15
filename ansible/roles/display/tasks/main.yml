@@ -10,16 +10,27 @@
     name: mesa-utils
     state: present
 
-# Raspberry Pi OS provides labwc; the plain Debian development VM does not
-# need a compositor because it runs the native renderer under Xvfb for tests.
-# The native app is an X11 client on labwc's Xwayland (see kiosk-app.sh).
+# Raspberry Pi OS provides labwc. The native app is an X11 client on labwc's
+# Xwayland (see kiosk-app.sh).
 - name: Install kiosk compositor
   ansible.builtin.apt:
     name:
       - labwc
       - xwayland
     state: present
-  when: kiosk_start_compositor
+  when: kiosk_start_compositor and kiosk_display == 'labwc'
+
+# The development VM has no labwc package; a plain X server is enough because the
+# native app is an X11 client. The VirtualBox window becomes the TV screen.
+- name: Install development X server
+  ansible.builtin.apt:
+    name:
+      - xserver-xorg-core
+      - xserver-xorg-input-libinput
+      - xinit
+      - x11-xserver-utils
+    state: present
+  when: kiosk_start_compositor and kiosk_display == 'xorg'
 
 # Hide the mouse cursor system-wide by shipping a transparent Xcursor theme
 # and pointing the session at it (XCURSOR_THEME=blank in the launch script).

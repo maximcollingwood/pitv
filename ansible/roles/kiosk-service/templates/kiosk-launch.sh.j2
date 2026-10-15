@@ -1,20 +1,25 @@
 #!/bin/sh
 # Managed by Ansible — edit the template, not this file.
-# Started by kiosk.service. Launches the labwc compositor; labwc's autostart
-# then brings up the kiosk app, and a labwc keybinding provides the console
-# escape hatch.
+# Started by kiosk.service. On the Pi it launches the labwc compositor; labwc's
+# autostart then brings up the kiosk app, and a labwc keybinding provides the
+# console escape hatch. The development VM uses a plain X server instead.
 set -eu
 
 export XDG_RUNTIME_DIR="/run/user/{{ kiosk_uid }}"
-
-# Use the transparent cursor theme installed by the display role so the mouse
-# pointer is invisible everywhere on the kiosk.
-export XCURSOR_THEME=blank
-export XCURSOR_SIZE=1
 
 # A previous session's relaunch loop and app can outlive a service restart (they
 # run in the login session scope). Stop them so only one player runs.
 pkill -u "$(id -u)" -f '^/bin/sh /usr/local/bin/kiosk-app.sh' || true
 pkill -u "$(id -u)" -x pitv-native || true
 
+{% if kiosk_display == 'xorg' %}
+# The VirtualBox window is the TV; the session script starts the app.
+exec xinit /usr/local/bin/kiosk-xsession.sh -- :0 vt1 -keeptty -nolisten tcp
+{% else %}
+# Use the transparent cursor theme installed by the display role so the mouse
+# pointer is invisible everywhere on the kiosk.
+export XCURSOR_THEME=blank
+export XCURSOR_SIZE=1
+
 exec labwc -C /etc/kiosk/labwc
+{% endif %}

@@ -25,4 +25,9 @@ kiosk_groups: [video, render, input, tty, audio]
 admin_console_tty: 2
 # The development VM compiles/tests the native app without a physical HDMI seat.
 kiosk_start_compositor: true
+# Display server for the TV app: labwc (Pi) or xorg (development VM window).
+kiosk_display: labwc
+# Development only: load the TV app's QML from this directory instead of the
+# compiled-in copy, so QML edits need an app restart rather than a rebuild.
+kiosk_qml_dir: ""
 native_build_jobs: 2

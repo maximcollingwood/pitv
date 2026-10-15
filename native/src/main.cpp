@@ -63,7 +63,9 @@ int main(int argc, char **argv) {
         qmlWarnings = true; for (const auto &error : errors) qWarning().noquote() << error.toString();
     });
     controller.start(argument("--fixture"));
-    engine.load(QUrl("qrc:/qml/Main.qml"));
+    // Development: PITV_QML_DIR loads QML from disk, so UI edits need only a restart.
+    const auto qmlDir = qEnvironmentVariable("PITV_QML_DIR");
+    engine.load(qmlDir.isEmpty() ? QUrl("qrc:/qml/Main.qml") : QUrl::fromLocalFile(qmlDir + "/Main.qml"));
     auto *window = engine.rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
     if (!window) {
         QMetaObject::invokeMethod(media, &MediaEngine::shutdown, Qt::BlockingQueuedConnection);

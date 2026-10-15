@@ -88,16 +88,44 @@ bash native/tests/verify-playback.sh native/build/pitv-native native-playback.pn
 This test uses software graphics and an isolated audio output. It does not measure
 Pi frame timing or validate a physical HDMI connection.
 
-On Windows, the existing Vagrant/VirtualBox workflow provides the Linux compiler:
+On Windows, the Vagrant/VirtualBox VM provides the Linux build and a full local
+appliance:
 
 ```sh
 vagrant up
-vagrant ssh
 ```
 
-The VM exposes the companion at `http://localhost:8080`. It builds the native
-application but does not start the display service. A VM validates compilation,
-API behavior and offscreen UI loading, not Pi graphics performance or HDMI audio.
+The VirtualBox window is the TV: the native app runs full screen (1600x900) on a
+plain X server. Use the arrow keys, Enter and Escape in the window, or the phone
+companion at `http://localhost:8080/remote` (editor at `/admin`). Graphics and
+video decoding are software in the VM, so it validates layout, navigation and
+behavior, not Pi performance, hardware decode or HDMI audio.
+
+### UI changes without a Pi
+
+In the VM the TV app loads its QML from the shared repo (`native/qml`), so QML
+edits only need an app restart. C++ changes need a rebuild:
+
+```sh
+npm run vm:tv:reload
+npm run vm:tv:rebuild
+```
+
+The Pi itself always uses the QML compiled into its build. `vagrant provision`
+re-applies everything (server, companion and native app).
+
+To work with real content, copy a Pi's database, uploaded images and prepared
+media into the VM. The Pi is only read; the VM's previous database is kept in
+`/var/lib/pitv/vm-before-pull-*.db`. Run from Git Bash with the VM running:
+
+```sh
+bash tools/pull-pi-content.sh
+```
+
+It defaults to `pitv@raspberrypi.local` over SSH (key auth; set `PITV_SSH_KEY`
+for a key file other than `~/.ssh/id_ed25519_pitv`). Add `--no-media` to skip the
+video cache. The admin PIN is not copied: the VM keeps its own in
+`/etc/kiosk/admin.env`.
 
 ## Install or update a Pi
 
