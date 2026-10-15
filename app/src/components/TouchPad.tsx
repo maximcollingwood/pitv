@@ -1,10 +1,13 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { RemoteAction } from "../lib/api";
 
-// Travel per step: a longer drag keeps stepping, like the Apple TV remote's
-// touch surface. A short flick that never reaches a full step still counts once.
-const STEP = 44;
-const FLICK = 22;
+// A normal swipe moves one item: the first step needs FIRST_STEP of travel,
+// each further step another STEP, so only a long drag keeps stepping (like the
+// Apple TV remote's touch surface). A short flick that never reaches the first
+// step still counts once when the finger lifts.
+const FIRST_STEP = 48;
+const STEP = 150;
+const FLICK = 28;
 const TAP_SLOP = 12;
 const TAP_MS = 450;
 const KEYS: Record<string, RemoteAction> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "select", " ": "select" };
@@ -39,14 +42,17 @@ export function TouchPad({ disabled, title, detail, onAction }: { disabled: bool
     if (!current || current.id !== event.pointerId) return;
     setTouch(point(event));
     const dx = event.clientX - current.x, dy = event.clientY - current.y;
-    // A fast flick arrives as a few large moves, so count every whole step.
-    const steps = Math.min(4, Math.floor(Math.max(Math.abs(dx), Math.abs(dy)) / STEP));
-    if (!steps) return;
+    const travel = Math.max(Math.abs(dx), Math.abs(dy));
+    const threshold = current.moved ? STEP : FIRST_STEP;
+    if (travel < threshold) return;
+    // A fast drag arrives as a few large moves, so count whole steps (at most two at once).
+    const steps = Math.min(2, 1 + Math.floor((travel - threshold) / STEP));
     const action = direction(dx, dy);
     for (let step = 0; step < steps; step++) fire(action);
     // Keep the leftover travel on the swiped axis; drift on the other resets.
-    if (action === "left" || action === "right") { current.x += Math.sign(dx) * steps * STEP; current.y = event.clientY; }
-    else { current.y += Math.sign(dy) * steps * STEP; current.x = event.clientX; }
+    const used = threshold + (steps - 1) * STEP;
+    if (action === "left" || action === "right") { current.x += Math.sign(dx) * used; current.y = event.clientY; }
+    else { current.y += Math.sign(dy) * used; current.x = event.clientX; }
     current.moved = true;
   }
   function up(event: PointerEvent<HTMLDivElement>) {
