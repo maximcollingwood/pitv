@@ -120,6 +120,10 @@ Window {
         property color ink: theme.purple900
         property color muted: "#4A4A4A"
         property color label: theme.purple700
+        // Put the code after the text, so two stacked steps never line their
+        // codes up one above the other (a camera would catch both).
+        property bool qrRight: false
+        layoutDirection: qrRight ? Qt.RightToLeft : Qt.LeftToRight
         spacing: 18 * textScale
         Rectangle {
             width: joinStep.qr; height: joinStep.qr; radius: joinStep.qr / 11; color: "white"
@@ -244,7 +248,7 @@ Window {
                         JoinStep { width: parent.width; visible: kiosk.wifiCode.length > 0; step: "1"; code: kiosk.wifiCode; title: "Join the Wi-Fi"
                             detail: kiosk.config.wifi ? kiosk.config.wifi.ssid : ""
                             note: kiosk.config.wifi && kiosk.config.wifi.password ? "Password  " + kiosk.config.wifi.password : "No password needed" }
-                        JoinStep { width: parent.width; step: kiosk.wifiCode.length > 0 ? "2" : ""; code: kiosk.remoteUrl; title: "Open the remote"; detail: "Scan with your phone's camera"; note: kiosk.remoteUrl.replace(/^https?:\/\//, "") }
+                        JoinStep { width: parent.width; step: kiosk.wifiCode.length > 0 ? "2" : ""; qrRight: kiosk.wifiCode.length > 0; code: kiosk.remoteUrl; title: "Open the remote"; detail: "Scan with your phone's camera"; note: kiosk.remoteUrl.replace(/^https?:\/\//, "") }
                     }
                 }
             }
