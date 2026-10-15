@@ -8,6 +8,31 @@ Window {
     visibility: startFullscreen ? Window.FullScreen : Window.Windowed
     title: "PiTV"
     color: theme.canvas
+    // One join step: a QR code and what scanning it does.
+    component JoinStep: Row {
+        id: joinStep
+        property string step
+        property string code
+        property string title
+        property string detail
+        property string note
+        property int qr: 108
+        property real textScale: 1
+        property color ink: "#17342b"
+        property color muted: "#5c7268"
+        property color label: "#376941"
+        spacing: 18 * textScale
+        Rectangle {
+            width: joinStep.qr; height: joinStep.qr; radius: joinStep.qr / 11; color: "white"
+            Image { anchors.fill: parent; anchors.margins: joinStep.qr / 22; source: "image://qr/" + encodeURIComponent(joinStep.code); smooth: false }
+        }
+        Column {
+            anchors.verticalCenter: parent.verticalCenter; width: joinStep.width - joinStep.qr - joinStep.spacing; spacing: 4 * joinStep.textScale
+            Text { width: parent.width; text: (joinStep.step ? joinStep.step + "   " : "") + joinStep.title.toUpperCase(); color: joinStep.label; font.family: "Noto Sans"; font.pixelSize: 13 * joinStep.textScale; font.letterSpacing: 1.5; font.weight: Font.DemiBold }
+            Text { width: parent.width; text: joinStep.detail; color: joinStep.ink; font.family: "Noto Sans"; font.pixelSize: 22 * joinStep.textScale; font.weight: Font.DemiBold; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight }
+            Text { width: parent.width; text: joinStep.note; color: joinStep.muted; font.family: "Noto Sans"; font.pixelSize: 18 * joinStep.textScale; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight }
+        }
+    }
     QtObject {
         id: theme
         property bool dark: kiosk.config.dark === undefined || kiosk.config.dark
@@ -61,7 +86,7 @@ Window {
                 }
             }
             Row {
-                anchors.right: remoteBadge.left; anchors.rightMargin: 22; spacing: 12
+                anchors.right: remoteBadge.visible ? remoteBadge.left : parent.right; anchors.rightMargin: remoteBadge.visible ? 22 : 0; spacing: 12
                 Pill { visible: !scene.home; label: "← Back"; ink: theme.ink; fill: theme.panel; activeFill: theme.active; accent: theme.accent; focused: kiosk.focusedControl === "back"; onClicked: kiosk.activateControl("back") }
                 Pill { label: theme.dark ? "Light appearance" : "Dark appearance"; ink: theme.ink; fill: theme.panel; activeFill: theme.active; accent: theme.accent; focused: kiosk.focusedControl === "theme"; onClicked: kiosk.activateControl("theme") }
                 Rectangle { width: 10; height: 10; radius: 5; anchors.verticalCenter: parent.verticalCenter; color: kiosk.connected ? theme.accent : "#e4ae72" }
@@ -69,6 +94,7 @@ Window {
             }
             Rectangle {
                 id: remoteBadge
+                visible: !scene.home
                 anchors.right: parent.right; y: -16; width: 88; height: 88; radius: 9; color: "white"
                 Image { anchors.fill: parent; anchors.margins: 3; source: "image://qr/" + encodeURIComponent(kiosk.remoteUrl); smooth: false }
                 MouseArea { anchors.fill: parent; onClicked: { kiosk.home(); kiosk.openIndex(kiosk.entries.length - 1) } }
@@ -81,13 +107,27 @@ Window {
             Rectangle {
                 width: 594; height: parent.height; radius: 28; color: theme.panel; clip: true
                 Image { anchors.fill: parent; source: kiosk.absoluteUrl(kiosk.config.hero || ""); fillMode: Image.PreserveAspectCrop; asynchronous: true; sourceSize.width: 1200; sourceSize.height: 1300 }
-                Rectangle { anchors.fill: parent; color: "transparent"; gradient: Gradient { GradientStop { position: 0; color: "#20202b23" } GradientStop { position: 1; color: "#f00c211a" } } }
-                Rectangle { x: 56; y: 58; width: 116; height: 4; radius: 2; color: "#bbd89c" }
-                Text { x: 56; y: 86; text: "WELCOME"; font.family: "Noto Sans"; font.pixelSize: 17; font.letterSpacing: 5; color: "#e4efdf" }
+                Rectangle { anchors.fill: parent; color: "transparent"; gradient: Gradient { GradientStop { position: 0; color: "#e00c211a" } GradientStop { position: 0.5; color: "#600c211a" } GradientStop { position: 1; color: "#c00c211a" } } }
+                Rectangle { x: 48; y: 48; width: 116; height: 4; radius: 2; color: "#bbd89c" }
+                Text { x: 48; y: 72; text: "WELCOME"; font.family: "Noto Sans"; font.pixelSize: 17; font.letterSpacing: 5; color: "#e4efdf" }
                 Column {
-                    x: 56; anchors.bottom: parent.bottom; anchors.bottomMargin: 52; width: parent.width - 112; spacing: 22
-                    Text { width: parent.width; text: kiosk.config.title || "A little space\nfor inspiration."; color: "#f4f1e9"; font.family: "Noto Sans"; font.pixelSize: 53; font.weight: Font.Medium; wrapMode: Text.WordWrap; lineHeight: 1.08 }
-                    Text { width: parent.width; text: kiosk.config.subtitle || "Discover something meaningful.\nMake yourself at home."; color: "#d0dfd0"; font.family: "Noto Sans"; font.pixelSize: 25; wrapMode: Text.WordWrap; lineHeight: 1.35 }
+                    x: 48; y: 112; width: parent.width - 96; spacing: 14
+                    Text { width: parent.width; text: kiosk.config.title || "A little space\nfor inspiration."; color: "#f4f1e9"; font.family: "Noto Sans"; font.pixelSize: 44; font.weight: Font.Medium; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight; lineHeight: 1.08 }
+                    Text { width: parent.width; text: kiosk.config.subtitle || "Discover something meaningful.\nMake yourself at home."; color: "#d0dfd0"; font.family: "Noto Sans"; font.pixelSize: 22; wrapMode: Text.WordWrap; maximumLineCount: kiosk.wifiCode.length > 0 ? 2 : 4; elide: Text.ElideRight; lineHeight: 1.3 }
+                }
+                // How a visitor gets the remote without navigating anywhere: join
+                // the Wi-Fi (when the admin set one), then open the remote.
+                Rectangle {
+                    x: 24; width: parent.width - 48; anchors.bottom: parent.bottom; anchors.bottomMargin: 24
+                    height: joinSteps.y + joinSteps.height + 22; radius: 20; color: "#f6f4ee"
+                    Text { x: 24; y: 18; text: "Use your phone as the remote"; color: "#17342b"; font.family: "Noto Sans"; font.pixelSize: 20; font.weight: Font.Medium }
+                    Column {
+                        id: joinSteps; x: 24; y: 50; width: parent.width - 48; spacing: 14
+                        JoinStep { width: parent.width; visible: kiosk.wifiCode.length > 0; step: "1"; code: kiosk.wifiCode; title: "Join the Wi-Fi"
+                            detail: kiosk.config.wifi ? kiosk.config.wifi.ssid : ""
+                            note: kiosk.config.wifi && kiosk.config.wifi.password ? "Password  " + kiosk.config.wifi.password : "No password needed" }
+                        JoinStep { width: parent.width; step: kiosk.wifiCode.length > 0 ? "2" : ""; code: kiosk.remoteUrl; title: "Open the remote"; detail: "Scan with your phone's camera"; note: kiosk.remoteUrl.replace(/^https?:\/\//, "") }
+                    }
                 }
             }
             Column {
@@ -208,10 +248,32 @@ Window {
         }
         Item {
             id: connectPage; visible: kiosk.page === "connect"; x: 140; y: 205; width: 1320; height: 530
-            Rectangle { width: 430; height: 430; radius: 28; color: "white"
+            property bool wifi: kiosk.wifiCode.length > 0
+            // With guest Wi-Fi set, the page walks through both steps at full size.
+            Column {
+                visible: connectPage.wifi; y: -40; width: parent.width; spacing: 44
+                Column { spacing: 14
+                    Text { text: "MAKE YOURSELF COMFORTABLE"; color: theme.accent; font.family: "Noto Sans"; font.pixelSize: 15; font.letterSpacing: 3 }
+                    Text { text: "Your phone is the remote."; color: theme.ink; font.family: "Noto Sans"; font.pixelSize: 56 }
+                }
+                Row { spacing: 44
+                    Repeater {
+                        model: 2
+                        JoinStep {
+                            required property int index
+                            width: 638; qr: 280; textScale: 1.5; ink: theme.ink; muted: theme.muted; label: theme.accent; step: String(index + 1)
+                            code: index === 0 ? kiosk.wifiCode : kiosk.remoteUrl
+                            title: index === 0 ? "Join the Wi-Fi" : "Open the remote"
+                            detail: index === 0 ? (kiosk.config.wifi ? kiosk.config.wifi.ssid : "") : "Scan with your phone's camera"
+                            note: index === 0 ? (kiosk.config.wifi && kiosk.config.wifi.password ? "Password  " + kiosk.config.wifi.password : "No password needed") : kiosk.remoteUrl.replace(/^https?:\/\//, "")
+                        }
+                    }
+                }
+            }
+            Rectangle { visible: !connectPage.wifi; width: 430; height: 430; radius: 28; color: "white"
                 Image { anchors.fill: parent; anchors.margins: 20; source: "image://qr/" + encodeURIComponent(kiosk.remoteUrl); smooth: false }
             }
-            Column { x: 510; y: 38; width: 740; spacing: 25
+            Column { visible: !connectPage.wifi; x: 510; y: 38; width: 740; spacing: 25
                 Text { text: "MAKE YOURSELF COMFORTABLE"; color: theme.accent; font.family: "Noto Sans"; font.pixelSize: 15; font.letterSpacing: 3 }
                 Text { width: parent.width; text: "Your phone is\nthe remote."; color: theme.ink; font.family: "Noto Sans"; font.pixelSize: 60; lineHeight: 1.1 }
                 Text { width: parent.width; text: "Connect to the same Wi-Fi, then scan the code with your camera to explore the library."; color: theme.muted; font.family: "Noto Sans"; font.pixelSize: 28; wrapMode: Text.WordWrap; lineHeight: 1.3 }

@@ -26,6 +26,8 @@ class Controller final : public QObject {
     Q_PROPERTY(QString focusedControl READ focusedControl NOTIFY selectionChanged)
     Q_PROPERTY(bool connected READ connected NOTIFY connectionChanged)
     Q_PROPERTY(QString remoteUrl READ remoteUrl NOTIFY libraryChanged)
+    // Guest Wi-Fi as a "WIFI:" QR payload phone cameras offer to join; empty when unset.
+    Q_PROPERTY(QString wifiCode READ wifiCode NOTIFY libraryChanged)
     Q_PROPERTY(QString notice READ notice NOTIFY viewChanged)
     Q_PROPERTY(QString mediaStatus READ mediaStatus NOTIFY playbackChanged)
     Q_PROPERTY(QString mediaError READ mediaError NOTIFY playbackChanged)
@@ -51,6 +53,7 @@ public:
     QString focusedControl() const;
     bool connected() const { return connected_; }
     QString remoteUrl() const;
+    QString wifiCode() const;
     QString notice() const { return notice_; }
     QString mediaStatus() const { return foreground_.asset.value("status").toString(); }
     QString mediaError() const { return foreground_.error; }

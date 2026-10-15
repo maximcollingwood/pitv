@@ -4,6 +4,7 @@
     "subtitle": "A space to learn, reflect, and find inspiration.",
     "dark": true,
     "hero": "",
+    "wifi": {"ssid": "Lotus; Guest", "password": "hare:krishna"},
     "sections": [
       {"id": 1, "type": "articles", "name": "Read & reflect"},
       {"id": 2, "type": "lyrics", "name": "Songs of devotion"},

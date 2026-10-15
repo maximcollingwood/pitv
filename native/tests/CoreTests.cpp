@@ -121,6 +121,12 @@ private slots:
         controller.action("down");
         QCOMPARE(controller.focusZone(), "footer");
     }
+    void guestWifiBecomesAJoinCode() {
+        Controller controller;
+        controller.start(TEST_FIXTURE);
+        // Reserved characters are escaped so phones read the name and password intact.
+        QCOMPARE(controller.wifiCode(), "WIFI:T:WPA;S:Lotus\\; Guest;P:hare\\:krishna;;");
+    }
     void readerLyricsAndFaqControls() {
         Controller controller;
         controller.start(TEST_FIXTURE);

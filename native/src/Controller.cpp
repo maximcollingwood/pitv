@@ -47,6 +47,18 @@ Controller::~Controller() {
 QString Controller::remoteUrl() const {
     return library_.value("info").toObject().value("remoteUrl").toString("http://pitv.local/remote");
 }
+QString Controller::wifiCode() const {
+    const auto wifi = library_.value("config").toObject().value("wifi").toObject();
+    const auto ssid = wifi.value("ssid").toString(), password = wifi.value("password").toString();
+    if (ssid.isEmpty()) return {};
+    const auto escape = [](QString text) {
+        for (const auto &special : {QStringLiteral("\\"), QStringLiteral(";"), QStringLiteral(","), QStringLiteral(":"), QStringLiteral("\"")})
+            text.replace(special, "\\" + special);
+        return text;
+    };
+    return password.isEmpty() ? QString("WIFI:T:nopass;S:%1;;").arg(escape(ssid))
+                              : QString("WIFI:T:WPA;S:%1;P:%2;;").arg(escape(ssid), escape(password));
+}
 QString Controller::absoluteUrl(const QString &path) const { return path.isEmpty() ? QString() : base_.resolved(QUrl(path)).toString(); }
 QVariantMap Controller::lyrics(const QString &body, double width, double height) const { return fitLyrics(body, width, height); }
 QString Controller::clockText(double seconds) const {

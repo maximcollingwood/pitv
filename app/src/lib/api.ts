@@ -1,6 +1,6 @@
 export type SectionType = "articles" | "lyrics" | "media" | "catalog" | "faq";
 export interface Section { id: number; type: SectionType; name: string; position: number }
-export interface Config { title: string; subtitle: string; dark: boolean; hero: string; sections: Section[] }
+export interface Config { title: string; subtitle: string; dark: boolean; hero: string; wifi: { ssid: string; password: string } | null; sections: Section[] }
 export type Item = Record<string, unknown> & { id: number };
 export interface BgTrack { id: number; title: string; youtube_url: string; position: number }
 export interface BgState { trackId: number | null; playing: boolean }

@@ -57,7 +57,10 @@ export function createApp(options: AppOptions = {}) {
   const info = () => ({ hostname: os.hostname(), remoteUrl: `http://${os.hostname()}.local/remote`, adminUrl: `http://${os.hostname()}.local/admin` });
   const config = () => {
     const settings = getSettings();
-    return { title: settings.title ?? "PiTV", subtitle: settings.subtitle ?? "", dark: settings.dark_mode !== "0", hero: settings.hero_image ?? "",
+    // Guest Wi-Fi the screen shows so visitors can reach the remote. It is on the
+    // screen for anyone to read, so it is not treated as a secret here either.
+    const wifi = settings.wifi_ssid ? { ssid: settings.wifi_ssid, password: settings.wifi_password ?? "" } : null;
+    return { title: settings.title ?? "PiTV", subtitle: settings.subtitle ?? "", dark: settings.dark_mode !== "0", hero: settings.hero_image ?? "", wifi,
       sections: db.prepare("SELECT id,type,name,position FROM sections ORDER BY position,id").all() as Section[] };
   };
   const sectionItems = (section: Section) => {
@@ -193,6 +196,9 @@ app.register(async (admin) => {
     if (!Number.isFinite(nextVolume) || nextVolume < 0 || nextVolume > 1) return reply.code(400).send({ error: "volume must be between 0 and 1" });
     if (nextTrack !== null && (!Number.isSafeInteger(nextTrack) || !db.prepare("SELECT id FROM background_tracks WHERE id=?").get(nextTrack))) return reply.code(400).send({ error: "Unknown background track" });
     if (body.bg_playing !== undefined && !["0", "1"].includes(body.bg_playing)) return reply.code(400).send({ error: "bg_playing must be 0 or 1" });
+    if (body.wifi_ssid !== undefined) body.wifi_ssid = String(body.wifi_ssid).trim();
+    if (body.wifi_ssid && Buffer.byteLength(body.wifi_ssid) > 32) return reply.code(400).send({ error: "A Wi-Fi network name is at most 32 characters." });
+    if (body.wifi_password && (body.wifi_password.length < 8 || body.wifi_password.length > 63)) return reply.code(400).send({ error: "A Wi-Fi password is 8 to 63 characters. Leave it empty for an open network." });
     const stmt = db.prepare(
       "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     );

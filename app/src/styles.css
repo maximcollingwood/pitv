@@ -955,6 +955,19 @@ input:disabled,select:disabled,textarea:disabled {
   margin-top:20px;
 }
 
+.editor-form fieldset.field-group {
+  gap:16px;
+  padding:18px;
+  border:1px solid var(--line);
+  border-radius:12px;
+}
+
+.field-group legend {
+  padding:0 6px;
+  font-size:.82rem;
+  font-weight:600;
+}
+
 .field-label {
   font-size:.82rem;
   font-weight:500;

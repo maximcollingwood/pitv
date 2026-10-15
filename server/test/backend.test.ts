@@ -344,6 +344,11 @@ test("live device stream delivers navigation, settings, background, volume, and 
     await next("library");
     const snapshot = (await app.inject("/api/library")).json();
     assert.equal(snapshot.config.title, "My room");
+    assert.equal(snapshot.config.wifi, null);
+    const shortPassword = await app.inject({ method: "PUT", url: "/api/admin/settings", headers, payload: { wifi_ssid: "Library Guest", wifi_password: "short" } });
+    assert.equal(shortPassword.statusCode, 400);
+    await app.inject({ method: "PUT", url: "/api/admin/settings", headers, payload: { wifi_ssid: " Library Guest ", wifi_password: "hare krishna" } });
+    assert.deepEqual((await app.inject("/api/config")).json().wifi, { ssid: "Library Guest", password: "hare krishna" });
     assert.equal(snapshot.volume, 0.31);
     assert.equal(snapshot.background.state.trackId, bg.json().id);
     await app.inject({ method: "DELETE", url: `/api/admin/background/tracks/${bg.json().id}`, headers });
