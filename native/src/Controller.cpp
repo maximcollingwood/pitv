@@ -36,6 +36,8 @@ Controller::Controller(QObject *parent) : QObject(parent) {
     cacheWriter_->moveToThread(&cacheThread_);
     connect(&cacheThread_, &QThread::finished, cacheWriter_, &QObject::deleteLater);
     cacheThread_.start();
+    // The footer's background control appears and disappears with the track.
+    connect(this, &Controller::backgroundChanged, this, [this] { if (zone_ == "footer") emit selectionChanged(); });
 }
 Controller::~Controller() {
     QMetaObject::invokeMethod(cacheWriter_, [] {}, Qt::BlockingQueuedConnection); // finish queued writes
@@ -163,7 +165,9 @@ void Controller::navigate(View view, bool remember) {
         emit stopMedia(true); playing_ = false; position_ = duration_ = 0;
         emit playbackChanged();
     }
-    view_ = std::move(view); notice_.clear(); rebuild(); emit resetScroll(); syncBackground(); publishStatus();
+    view_ = std::move(view); notice_.clear();
+    zone_ = "content"; chromeIndex_ = 0; scrollAtStart_ = true; scrollAtEnd_ = false;
+    rebuild(); emit resetScroll(); emit selectionChanged(); syncBackground(); publishStatus();
 }
 void Controller::home() { history_.clear(); navigate(View{}, false); }
 void Controller::back() {
@@ -260,6 +264,15 @@ void Controller::action(const QString &key, int columns) {
         else if (key == "up" || key == "down") setVolume(volume_ + (key == "up" ? .05 : -.05));
         return;
     }
+    if (zone_ != "content") {
+        // Header/footer bars: left/right between controls, back toward the content to leave.
+        const int count = int(chromeControls(zone_).size());
+        if (key == "select") { activateControl(focusedControl()); return; }
+        if (key == "left" || key == "right") chromeIndex_ = std::clamp(chromeIndex_ + (key == "left" ? -1 : 1), 0, std::max(0, count - 1));
+        else if (key == (zone_ == "header" ? "down" : "up")) zone_ = "content";
+        emit selectionChanged();
+        return;
+    }
     if (view_.page == "lyrics" && (key == "left" || key == "right")) {
         const auto siblings = library_.value("items").toObject().value(view_.section).toArray();
         int at = 0;
@@ -271,18 +284,47 @@ void Controller::action(const QString &key, int columns) {
         return;
     }
     if (view_.page == "reader" || view_.page == "lyrics" || view_.page == "book") {
-        if (key == "up" || key == "down") emit scrollRequested(key == "up" ? -1 : 1);
+        // Scrolling past the top or bottom of the text reaches the header or footer.
+        if (key == "up" && scrollAtStart_) enterChrome("header");
+        else if (key == "down" && scrollAtEnd_) enterChrome("footer");
+        else if (key == "up" || key == "down") emit scrollRequested(key == "up" ? -1 : 1);
         return;
     }
+    const int columnCount = std::max(1, columns), count = int(entries_.size());
     if (key == "select") {
         if (entries_.isEmpty() && view_.page == "playlist") retry(); else openIndex(view_.selected);
     } else if (view_.type == "faq" && (key == "left" || key == "right")) {
         emit scrollRequested(key == "left" ? -1 : 1);
-    } else if (!entries_.isEmpty()) {
-        int delta = key == "left" ? -1 : key == "right" ? 1 : key == "up" ? -std::max(1, columns) : key == "down" ? std::max(1, columns) : 0;
+    } else if (key == "up" && view_.selected < columnCount) {
+        enterChrome("header");
+    } else if (key == "down" && (count == 0 || view_.selected / columnCount == (count - 1) / columnCount)) {
+        enterChrome("footer");
+    } else if (count > 0) {
+        int delta = key == "left" ? -1 : key == "right" ? 1 : key == "up" ? -columnCount : key == "down" ? columnCount : 0;
         selectIndex(view_.selected + delta);
     }
 }
+QStringList Controller::chromeControls(const QString &zone) const {
+    if (zone == "header") return view_.page == "home" ? QStringList{"theme"} : QStringList{"back", "theme"};
+    if (zone == "footer") return backgroundTitle_.isEmpty() ? QStringList{"remote"} : QStringList{"background", "remote"};
+    return {};
+}
+QString Controller::focusedControl() const {
+    const auto controls = chromeControls(zone_);
+    return controls.isEmpty() ? QString() : controls.at(std::clamp(chromeIndex_, 0, int(controls.size()) - 1));
+}
+void Controller::enterChrome(const QString &zone) { zone_ = zone; chromeIndex_ = 0; emit selectionChanged(); }
+void Controller::activateControl(const QString &control) {
+    if (control == "back") back();
+    else if (control == "theme") toggleDark();
+    else if (control == "background") toggleBackground();
+    else if (control == "remote") {
+        home();
+        for (int i = 0; i < entries_.size(); ++i)
+            if (entries_[i].toMap().value("action") == "connect") { openIndex(i); break; }
+    }
+}
+void Controller::setScrollEdges(bool atStart, bool atEnd) { scrollAtStart_ = atStart; scrollAtEnd_ = atEnd; }
 void Controller::fetchPlaylist(bool retry) {
     if (fixture_ || view_.page != "playlist" || playlistPending_) return;
     playlistPending_ = true; const auto id = view_.playlist;

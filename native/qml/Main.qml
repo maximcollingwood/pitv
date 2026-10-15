@@ -28,6 +28,9 @@ Window {
         property bool home: kiosk.page === "home"
         property bool player: kiosk.page === "player"
         property bool reading: ["reader", "lyrics", "book"].indexOf(kiosk.page) >= 0
+        // Tiles show the remote highlight only while focus is in the grid/list.
+        property bool contentFocus: kiosk.focusZone === "content"
+        function reportScrollEdges() { kiosk.setScrollEdges(textScroll.atYBeginning, textScroll.atYEnd) }
         function label(item) { return item.name || item.question || item.title || "Untitled" }
         function typeLabel(type) { return ({articles:"READ & REFLECT", lyrics:"SING TOGETHER", media:"WATCH & LISTEN", catalog:"OUR BOOKS", faq:"QUESTIONS & ANSWERS", background:"SET THE ATMOSPHERE", connect:"CONTROL FROM YOUR PHONE"})[type] || "EXPLORE" }
         function icon(type) { return ({articles:"Aa", lyrics:"♫", media:"▷", catalog:"▤", faq:"?", background:"♪", connect:"⌘"})[type] || "→" }
@@ -59,8 +62,8 @@ Window {
             }
             Row {
                 anchors.right: remoteBadge.left; anchors.rightMargin: 22; spacing: 12
-                Pill { visible: !scene.home; label: "← Back"; ink: theme.ink; fill: theme.panel; onClicked: kiosk.back() }
-                Pill { label: theme.dark ? "Light appearance" : "Dark appearance"; ink: theme.ink; fill: theme.panel; onClicked: kiosk.toggleDark() }
+                Pill { visible: !scene.home; label: "← Back"; ink: theme.ink; fill: theme.panel; activeFill: theme.active; accent: theme.accent; focused: kiosk.focusedControl === "back"; onClicked: kiosk.activateControl("back") }
+                Pill { label: theme.dark ? "Light appearance" : "Dark appearance"; ink: theme.ink; fill: theme.panel; activeFill: theme.active; accent: theme.accent; focused: kiosk.focusedControl === "theme"; onClicked: kiosk.activateControl("theme") }
                 Rectangle { width: 10; height: 10; radius: 5; anchors.verticalCenter: parent.verticalCenter; color: kiosk.connected ? theme.accent : "#e4ae72" }
                 Text { anchors.verticalCenter: parent.verticalCenter; text: kiosk.connected ? "Connected" : "Local library"; color: theme.muted; font.pixelSize: 16; font.family: "Noto Sans" }
             }
@@ -107,9 +110,9 @@ Window {
                         width: homeGrid.cellWidth; height: homeGrid.cellHeight
                         Rectangle {
                             anchors.fill: parent; anchors.rightMargin: 16; anchors.bottomMargin: 16; radius: 19
-                            color: kiosk.selected === index ? theme.active : theme.panel
-                            border.width: kiosk.selected === index ? 2 : 1
-                            border.color: kiosk.selected === index ? theme.accent : theme.line
+                            color: scene.contentFocus && kiosk.selected === index ? theme.active : theme.panel
+                            border.width: scene.contentFocus && kiosk.selected === index ? 2 : 1
+                            border.color: scene.contentFocus && kiosk.selected === index ? theme.accent : theme.line
                             Behavior on color { ColorAnimation { duration: 110 } }
                             Text { x: 25; y: 19; text: scene.icon(modelData.type); color: theme.accent; font.family: "Noto Sans"; font.pixelSize: 29 }
                             Text { x: 25; y: 64; width: parent.width - 48; text: scene.label(modelData); color: theme.ink; font.family: "Noto Sans"; font.pixelSize: 22; font.weight: Font.DemiBold; elide: Text.ElideRight }
@@ -137,8 +140,8 @@ Window {
                     required property var modelData
                     required property int index
                     width: itemList.width; height: browse.faq ? 108 : (kiosk.sectionType === "catalog" ? 128 : 102); radius: 17
-                    color: kiosk.selected === index ? theme.active : theme.panel
-                    border.color: kiosk.selected === index ? theme.accent : theme.line; border.width: kiosk.selected === index ? 2 : 1
+                    color: scene.contentFocus && kiosk.selected === index ? theme.active : theme.panel
+                    border.color: scene.contentFocus && kiosk.selected === index ? theme.accent : theme.line; border.width: scene.contentFocus && kiosk.selected === index ? 2 : 1
                     Behavior on color { ColorAnimation { duration: 100 } }
                     Text { x: 26; anchors.verticalCenter: parent.verticalCenter; text: (index + 1).toString().padStart(2, "0"); color: theme.muted; font.family: "Noto Sans"; font.pixelSize: 18 }
                     Column {
@@ -183,6 +186,8 @@ Window {
             Rectangle { x: 0; y: kiosk.page === "book" ? 103 : 73; width: parent.width; height: 1; color: theme.line }
             Flickable {
                 id: textScroll
+                onAtYBeginningChanged: scene.reportScrollEdges()
+                onAtYEndChanged: scene.reportScrollEdges()
                 x: 0; y: kiosk.page === "book" ? 129 : 99; width: parent.width; height: parent.height - y
                 contentWidth: width; contentHeight: kiosk.page === "lyrics" ? lyricsRow.height : article.implicitHeight
                 clip: true; boundsBehavior: Flickable.StopAtBounds
@@ -248,13 +253,13 @@ Window {
                 Text { text: scene.reading ? (kiosk.page === "lyrics" ? "Scroll · ← → Change song" : "Scroll to read") : (kiosk.sectionType === "faq" ? "Questions · ← → Scroll answer" : "Navigate  ·  OK Select  ·  Back Return"); color: theme.muted; font.family: "Noto Sans"; font.pixelSize: 17 }
             }
             Row { anchors.right: parent.right; spacing: 12
-                Pill { visible: !!kiosk.backgroundTitle; label: (kiosk.backgroundPlaying ? "Ⅱ  " : "♪  ") + kiosk.backgroundTitle.substring(0, 30); ink: theme.accent; fill: theme.panel; onClicked: kiosk.toggleBackground() }
-                Pill { label: "⌘  Phone remote"; ink: theme.ink; fill: theme.panel; onClicked: { kiosk.home(); kiosk.openIndex(kiosk.entries.length - 1) } }
+                Pill { visible: !!kiosk.backgroundTitle; label: (kiosk.backgroundPlaying ? "Ⅱ  " : "♪  ") + kiosk.backgroundTitle.substring(0, 30); ink: theme.accent; fill: theme.panel; activeFill: theme.active; accent: theme.accent; focused: kiosk.focusedControl === "background"; onClicked: kiosk.activateControl("background") }
+                Pill { label: "⌘  Phone remote"; ink: theme.ink; fill: theme.panel; activeFill: theme.active; accent: theme.accent; focused: kiosk.focusedControl === "remote"; onClicked: kiosk.activateControl("remote") }
             }
         }
         Connections {
             target: kiosk
-            function onViewChanged() { scene.forceActiveFocus() }
+            function onViewChanged() { scene.forceActiveFocus(); Qt.callLater(scene.reportScrollEdges) }
             function onResetScroll() { textScroll.contentY = 0; faqScroll.contentY = 0 }
             function onScrollRequested(direction) {
                 var target = browse.faq ? faqScroll : textScroll

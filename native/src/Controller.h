@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QPointer>
+#include <QStringList>
 #include <QThread>
 #include <QTimer>
 #include <QVariantList>
@@ -20,6 +21,9 @@ class Controller final : public QObject {
     Q_PROPERTY(QString heading READ heading NOTIFY viewChanged)
     Q_PROPERTY(QString sectionType READ sectionType NOTIFY viewChanged)
     Q_PROPERTY(int selected READ selected NOTIFY selectionChanged)
+    // Arrow focus: "content" (the grid/list) or the "header"/"footer" control bars.
+    Q_PROPERTY(QString focusZone READ focusZone NOTIFY selectionChanged)
+    Q_PROPERTY(QString focusedControl READ focusedControl NOTIFY selectionChanged)
     Q_PROPERTY(bool connected READ connected NOTIFY connectionChanged)
     Q_PROPERTY(QString remoteUrl READ remoteUrl NOTIFY libraryChanged)
     Q_PROPERTY(QString notice READ notice NOTIFY viewChanged)
@@ -43,6 +47,8 @@ public:
     QString heading() const { return view_.heading; }
     QString sectionType() const { return view_.type; }
     int selected() const { return view_.selected; }
+    QString focusZone() const { return zone_; }
+    QString focusedControl() const;
     bool connected() const { return connected_; }
     QString remoteUrl() const;
     QString notice() const { return notice_; }
@@ -66,6 +72,8 @@ public:
     Q_INVOKABLE void toggleBackground();
     Q_INVOKABLE void openBackground();
     Q_INVOKABLE void retry();
+    Q_INVOKABLE void activateControl(const QString &control);
+    Q_INVOKABLE void setScrollEdges(bool atStart, bool atEnd);
     Q_INVOKABLE QString absoluteUrl(const QString &path) const;
     Q_INVOKABLE QVariantMap lyrics(const QString &body, double width, double height) const;
     Q_INVOKABLE QString clockText(double seconds) const;
@@ -109,6 +117,11 @@ private:
     bool connected_ = false, fixture_ = false, snapshotPending_ = false, snapshotAgain_ = false;
     bool playing_ = false, backgroundPlaying_ = false, backgroundDesired_ = false, playlistPending_ = false;
     int retryDelay_ = 1000, backgroundTrack_ = -1;
+    QString zone_ = "content";
+    int chromeIndex_ = 0;
+    bool scrollAtStart_ = true, scrollAtEnd_ = false;
+    QStringList chromeControls(const QString &zone) const;
+    void enterChrome(const QString &zone);
     double position_ = 0, duration_ = 0, volume_ = .05;
     using Response = std::function<void(const QJsonObject &, const QString &)>;
     void request(const QString &path, const QJsonObject *body, Response done);

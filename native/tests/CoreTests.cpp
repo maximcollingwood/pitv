@@ -40,6 +40,9 @@ private slots:
         QCOMPARE(controller.page(), "home");
         QCOMPARE(controller.entries().size(), 7);
         controller.action("up", 2);
+        QCOMPARE(controller.focusZone(), "header");
+        controller.action("down", 2);
+        QCOMPARE(controller.focusZone(), "content");
         QCOMPARE(controller.selected(), 0);
         controller.action("down", 2);
         QCOMPARE(controller.selected(), 2);
@@ -67,6 +70,56 @@ private slots:
         QCOMPARE(controller.selected(), 2);
         controller.home();
         QCOMPARE(controller.selected(), 0);
+    }
+    void headerAndFooterControlsAreReachableWithArrows() {
+        Controller controller;
+        controller.start(TEST_FIXTURE);
+        const bool dark = controller.config().value("dark").toBool();
+        controller.action("up", 2);
+        QCOMPARE(controller.focusedControl(), "theme");
+        controller.action("select", 2);
+        QCOMPARE(controller.config().value("dark").toBool(), !dark);
+        QCOMPARE(controller.focusZone(), "header");
+        controller.action("down", 2);
+        // Down from the last row (a partial row included) reaches the footer.
+        for (int i = 0; i < 3; ++i) controller.action("down", 2);
+        QCOMPARE(controller.selected(), 6);
+        QCOMPARE(controller.focusZone(), "content");
+        controller.action("down", 2);
+        QCOMPARE(controller.focusZone(), "footer");
+        QCOMPARE(controller.focusedControl(), "background");
+        QSignalSpy load(&controller, &Controller::loadMedia);
+        controller.action("select", 2);
+        QCOMPARE(load.count(), 1);
+        controller.action("right", 2);
+        QCOMPARE(controller.focusedControl(), "remote");
+        controller.action("select", 2);
+        QCOMPARE(controller.page(), "connect");
+        QCOMPARE(controller.focusZone(), "content");
+        controller.home(); controller.openIndex(0);
+        QCOMPARE(controller.page(), "section");
+        controller.action("up");
+        QCOMPARE(controller.focusedControl(), "back");
+        controller.action("right");
+        QCOMPARE(controller.focusedControl(), "theme");
+        controller.action("right");
+        QCOMPARE(controller.focusedControl(), "theme");
+        controller.action("left");
+        controller.action("select");
+        QCOMPARE(controller.page(), "home");
+        controller.openIndex(0); controller.openIndex(0);
+        QCOMPARE(controller.page(), "reader");
+        QSignalSpy scroll(&controller, &Controller::scrollRequested);
+        controller.setScrollEdges(false, false);
+        controller.action("up");
+        QCOMPARE(scroll.count(), 1);
+        controller.setScrollEdges(true, false);
+        controller.action("up");
+        QCOMPARE(controller.focusZone(), "header");
+        controller.action("down");
+        controller.setScrollEdges(false, true);
+        controller.action("down");
+        QCOMPARE(controller.focusZone(), "footer");
     }
     void readerLyricsAndFaqControls() {
         Controller controller;
