@@ -84,6 +84,33 @@
   loop: [left_ptr, arrow, top_left_arrow, left_arrow, pointer, pointing_hand, hand1, hand2, text, xterm, ibeam,
          watch, wait, progress, left_ptr_watch, crosshair, cross, grab, grabbing, move, fleur, not-allowed]
 
+# HDMI colour range. kiosk.service applies the saved choice before labwc starts;
+# the System tab rewrites the file (as root, via pitv-system), so keep its value.
+- name: Install the HDMI colour range tool
+  ansible.builtin.template:
+    src: pitv-hdmi-range.j2
+    dest: /usr/local/sbin/pitv-hdmi-range
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure /etc/kiosk exists
+  ansible.builtin.file:
+    path: /etc/kiosk
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Seed the HDMI colour range setting
+  ansible.builtin.copy:
+    dest: "{{ hdmi_range_file }}"
+    content: "{{ kiosk_hdmi_range }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
 # Hardware video decode + tear-free presentation both require the full KMS
 # driver (vc4-kms-v3d). Pi OS Bookworm ships with it enabled, but assert it
 # from config so a flashed image with the legacy fkms overlay still gets

@@ -14,6 +14,10 @@ case "$action" in
   update) exec systemctl start --no-block kiosk-update.service ;;
   restart-screen) pkill -x pitv-native; exit 0 ;;
   reset-audio) exec runuser -u {{ kiosk_user }} -- /usr/local/bin/kiosk-audio-reset.sh ;;
+  range-automatic|range-full|range-limited)
+    # kiosk.service applies it as it starts (pitv-hdmi-range).
+    echo "${action#range-}" > {{ hdmi_range_file }}
+    exec systemctl try-restart kiosk.service ;;
   reboot) exec systemctl reboot ;;
   poweroff) exec systemctl poweroff ;;
   *) echo "Ignored an unknown request" >&2; exit 0 ;;

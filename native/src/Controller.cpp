@@ -30,6 +30,9 @@ Controller::Controller(QObject *parent) : QObject(parent) {
     connect(&refresh_, &QTimer::timeout, this, &Controller::fetchLibrary);
     watchdog_.setInterval(45000); watchdog_.setSingleShot(true);
     connect(&watchdog_, &QTimer::timeout, this, [this] { if (stream_) stream_->abort(); });
+    // A forgotten colour check does not stay on the screen.
+    colourCheckTimeout_.setInterval(10 * 60 * 1000); colourCheckTimeout_.setSingleShot(true);
+    connect(&colourCheckTimeout_, &QTimer::timeout, this, [this] { showColourCheck(false); });
     // Cache commits fsync, which can stall for seconds while downloads flush to
     // the SD card, so they never run on the UI thread.
     cacheWriter_ = new QObject;
@@ -182,6 +185,8 @@ void Controller::event(const QJsonObject &object) {
     } else if (type == "background") {
         library_.insert("background", decomposed(QJsonObject{{"tracks", object.value("tracks")}, {"state", object.value("state")}}));
         syncBackground(); if (page() == "background") rebuild(); saveCache();
+    } else if (type == "colourCheck") {
+        showColourCheck(object.value("show").toBool(true));
     } else if (type == "media") {
         const auto value = object.value("asset").toObject();
         for (bool video : {true, false}) {
@@ -289,6 +294,8 @@ void Controller::openItem(const QVariantMap &item) {
     }
 }
 void Controller::action(const QString &key, int columns) {
+    // Any button closes the colour check, and does nothing else.
+    if (colourCheck_) { showColourCheck(false); return; }
     if (key == "home") { home(); return; }
     if (key == "back") { back(); return; }
     if (view_.page == "player") {
@@ -484,8 +491,15 @@ void Controller::mediaState(bool video, bool playing, double position, double du
 void Controller::mediaEnded(bool video) {
     if (!video && backgroundDesired_ && view_.page != "player" && !background_.loaded.isEmpty()) emit loadMedia(background_.loaded, false);
 }
+void Controller::showColourCheck(bool show) {
+    if (show) colourCheckTimeout_.start(); else colourCheckTimeout_.stop();
+    if (colourCheck_ == show) return;
+    colourCheck_ = show;
+    emit colourCheckChanged();
+    publishStatus();
+}
 void Controller::publishStatus() {
     if (fixture_) return;
-    QJsonObject body{{"page", view_.page}, {"title", view_.heading}, {"playing", playing_}, {"position", position_}, {"duration", duration_}, {"error", foreground_.error}};
+    QJsonObject body{{"page", colourCheck_ ? QStringLiteral("colour-check") : view_.page}, {"title", colourCheck_ ? QStringLiteral("the colour check") : view_.heading}, {"playing", playing_}, {"position", position_}, {"duration", duration_}, {"error", foreground_.error}};
     request("/api/device/status", &body, [](const QJsonObject &, const QString &) {});
 }

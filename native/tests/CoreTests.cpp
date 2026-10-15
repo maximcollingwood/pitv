@@ -124,6 +124,20 @@ private slots:
         controller.action("down");
         QCOMPARE(controller.focusZone(), "footer");
     }
+    void anyButtonClosesTheColourCheck() {
+        Controller controller;
+        controller.start(TEST_FIXTURE);
+        QSignalSpy changed(&controller, &Controller::colourCheckChanged);
+        controller.showColourCheck(true);
+        QVERIFY(controller.colourCheck());
+        controller.action("down", 2);
+        QVERIFY(!controller.colourCheck());
+        QCOMPARE(changed.count(), 2);
+        QCOMPARE(controller.page(), "home");
+        QCOMPARE(controller.selected(), 0);
+        controller.action("down", 2);
+        QCOMPARE(controller.selected(), 2);
+    }
     void guestWifiBecomesAJoinCode() {
         Controller controller;
         controller.start(TEST_FIXTURE);

@@ -334,6 +334,8 @@ test("live device stream delivers navigation, settings, background, volume, and 
     assert.equal((await next("status")).playing, false, "a heartbeat with only a new position is not an event");
     const login = await app.inject({ method: "POST", url: "/api/admin/login", payload: { pin: "1234" } });
     const headers = { authorization: `Bearer ${login.json().token}` };
+    await app.inject({ method: "POST", url: "/api/admin/system/colour-check", headers, payload: { show: true } });
+    assert.equal((await next("colourCheck")).show, true);
     const bg = await app.inject({ method: "POST", url: "/api/admin/background/tracks", headers, payload: { youtube_url: `${URL}&list=PLcontext` } });
     assert.equal(bg.statusCode, 201);
     assert.equal((await next("background")).tracks[0].youtube_url, URL);
@@ -474,7 +476,7 @@ test("system page reports health and hands only known actions to the root helper
     return null;
   };
   const { app } = createApp({ dbPath: join(temp.path, "library.db"), seed: false, logger: false, startWorker: false, adminPin: "1234",
-    system: { requestPath: join(spool, "request"), versionPath, updateLogPath: join(temp.path, "update.log"), run } });
+    system: { requestPath: join(spool, "request"), versionPath, updateLogPath: join(temp.path, "update.log"), rangePath: join(temp.path, "hdmi-range"), run } });
   try {
     assert.equal((await app.inject("/api/admin/system")).statusCode, 401);
     const headers = { authorization: `Bearer ${(await app.inject({ method: "POST", url: "/api/admin/login", payload: { pin: "1234" } })).json().token}` };
@@ -491,6 +493,13 @@ test("system page reports health and hands only known actions to the root helper
     assert.equal(readFileSync(join(spool, "request"), "utf8"), "restart-screen");
     assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/reset-audio", headers })).statusCode, 202);
     assert.equal(readFileSync(join(spool, "request"), "utf8"), "reset-audio");
+    assert.equal(page.colourRange, null);
+    assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/range-full", headers })).statusCode, 409, "no colour range outside the Pi");
+    writeFileSync(join(temp.path, "hdmi-range"), "full\n");
+    assert.equal((await app.inject({ url: "/api/admin/system", headers })).json().colourRange, "full");
+    assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/range-limited", headers })).statusCode, 202);
+    assert.equal(readFileSync(join(spool, "request"), "utf8"), "range-limited");
+    assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/colour-check", headers, payload: { show: true } })).statusCode, 409, "the screen is not connected");
     running = true;
     assert.equal((await app.inject({ method: "POST", url: "/api/admin/system/update", headers })).statusCode, 409, "one update at a time");
     writeFileSync(versionPath, JSON.stringify({ commit: "abc123", selfUpdate: false }));

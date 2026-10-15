@@ -10,6 +10,7 @@ import { useDeviceStatus } from "../lib/useDeviceStatus";
 // What a swipe or tap does on the page the screen is showing.
 function padHint(status: DeviceStatus | null, offline: boolean) {
   if (offline) return { title: "Waiting for the screen", detail: "The pad comes back when the screen reconnects." };
+  if (status?.page === "colour-check") return { title: "Tap to close the colour check", detail: "Any button on this remote closes it." };
   if (status?.page === "player") return { title: status.playing ? "Tap to pause" : "Tap to play", detail: "Swipe left or right to skip 10 seconds, up or down for volume." };
   if (status?.page === "lyrics") return { title: "Swipe up or down to scroll", detail: "Swipe left or right for the next song." };
   if (status?.page === "reader" || status?.page === "book") return { title: "Swipe up or down to read", detail: "Keep swiping up at the top to reach the menu." };

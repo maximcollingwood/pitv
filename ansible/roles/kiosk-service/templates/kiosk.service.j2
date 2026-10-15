@@ -20,6 +20,9 @@ StandardError=journal
 TTYReset=yes
 TTYVHangup=yes
 
+# The colour range can only change while nothing holds the display, so it is
+# applied as root just before labwc starts. "-" keeps a failure from blocking the TV.
+ExecStartPre=-+/usr/local/sbin/pitv-hdmi-range
 ExecStart=/usr/local/bin/kiosk-launch.sh
 
 # Self-healing: restart the app whenever it exits or crashes.

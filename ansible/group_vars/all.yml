@@ -33,4 +33,9 @@ kiosk_display: labwc
 # Development only: load the TV app's QML from this directory instead of the
 # compiled-in copy, so QML edits need an app restart rather than a rebuild.
 kiosk_qml_dir: ""
+# HDMI colour range (automatic, full or limited) the screen session applies as it
+# starts. The admin page's System tab changes it on the device; this is only the
+# first value, and re-provisioning keeps the device's choice.
+hdmi_range_file: /etc/kiosk/hdmi-range
+kiosk_hdmi_range: automatic
 native_build_jobs: 2

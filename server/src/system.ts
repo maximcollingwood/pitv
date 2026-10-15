@@ -9,8 +9,11 @@ import { dirname } from "node:path";
  * one-word requests in a spool file; a root-owned systemd path unit
  * (pitv-system.path, Ansible kiosk-service role) carries out only these words.
  */
-export const SYSTEM_ACTIONS = ["update", "restart-screen", "reset-audio", "reboot", "poweroff"] as const;
+export const SYSTEM_ACTIONS = ["update", "restart-screen", "reset-audio", "range-automatic", "range-full", "range-limited", "reboot", "poweroff"] as const;
 export type SystemAction = typeof SYSTEM_ACTIONS[number];
+/** HDMI colour range: what the Pi tells the TV black and white are. */
+export const COLOUR_RANGES = ["automatic", "full", "limited"] as const;
+export type ColourRange = typeof COLOUR_RANGES[number];
 
 export interface SystemOptions {
   /** Spool file the root helper watches. */
@@ -21,6 +24,8 @@ export interface SystemOptions {
   versionPath: string;
   /** Where the library lives, for free-space reporting. */
   dataDir: string;
+  /** The HDMI colour range the screen session starts with (root-owned, see pitv-hdmi-range). */
+  rangePath: string;
   /** Command runner, replaceable in tests. */
   run?: (command: string, args: string[], timeoutMs: number) => Promise<string | null>;
 }
@@ -79,6 +84,14 @@ export class SystemControl {
       // Only meaningful once a run has happened since boot.
       succeeded: running || !startedAt ? null : fields.Result === "success",
     };
+  }
+
+  /** The chosen colour range; null where the screen session does not manage it (development). */
+  colourRange(): ColourRange | null {
+    try {
+      const value = readFileSync(this.options.rangePath, "utf8").trim();
+      return (COLOUR_RANGES as readonly string[]).includes(value) ? value as ColourRange : "automatic";
+    } catch { return null; }
   }
 
   updateLog(lines = 80) {

@@ -1,0 +1,93 @@
+#!/usr/bin/python3
+# Managed by Ansible — edit the template, not this file.
+"""Set the HDMI colour range ("Broadcast RGB": automatic, full or limited).
+
+Automatic sends TV resolutions as limited range (16-235), which is what a TV
+expects. Some TVs disagree: with the wrong range, blacks turn grey and colours
+fade, or dark tones crush and cream clips to white. The admin page's System tab
+picks the range; kiosk.service runs this as root before labwc takes the
+display (only the program holding the display may change it), and the setting
+stays with the connector afterwards.
+
+Usage: pitv-hdmi-range [automatic|full|limited]
+Without an argument it applies the choice saved in {{ hdmi_range_file }}.
+"""
+import ctypes
+import fcntl
+import glob
+import os
+import struct
+import sys
+
+SETTING = "{{ hdmi_range_file }}"
+
+
+def iowr(nr, size):
+    return (3 << 30) | (size << 16) | (ord("d") << 8) | nr
+
+
+GETPROPERTY = iowr(0xAA, 64)        # struct drm_mode_get_property
+OBJ_GETPROPERTIES = iowr(0xB9, 32)  # struct drm_mode_obj_get_properties
+OBJ_SETPROPERTY = iowr(0xBA, 24)    # struct drm_mode_obj_set_property
+SET_MASTER = (ord("d") << 8) | 0x1E
+OBJECT_CONNECTOR = 0xC0C0C0C0
+RANGES = {"automatic": 0, "full": 1, "limited": 2}
+
+
+def find_property(fd, connector, wanted):
+    """The property's id and current value on the connector, or None."""
+    request = bytearray(struct.pack("<QQIII4x", 0, 0, 0, connector, OBJECT_CONNECTOR))
+    fcntl.ioctl(fd, OBJ_GETPROPERTIES, request)
+    count = struct.unpack_from("<I", request, 16)[0]
+    ids, values = (ctypes.c_uint32 * count)(), (ctypes.c_uint64 * count)()
+    request = bytearray(struct.pack("<QQIII4x", ctypes.addressof(ids), ctypes.addressof(values), count, connector, OBJECT_CONNECTOR))
+    fcntl.ioctl(fd, OBJ_GETPROPERTIES, request)
+    for prop, value in zip(ids, values):
+        info = bytearray(struct.pack("<QQII32sII", 0, 0, prop, 0, b"", 0, 0))
+        fcntl.ioctl(fd, GETPROPERTY, info)
+        if struct.unpack_from("<32s", info, 24)[0].split(b"\0")[0] == wanted:
+            return prop, value
+    return None
+
+
+def chosen():
+    if len(sys.argv) > 1:
+        return sys.argv[1].lower()
+    try:
+        with open(SETTING) as setting:
+            return setting.read().strip().lower() or "automatic"
+    except FileNotFoundError:
+        return "automatic"
+
+
+def main():
+    name = chosen()
+    if name not in RANGES:
+        sys.exit(f"usage: {sys.argv[0]} automatic|full|limited")
+    for path in sorted(glob.glob("/sys/class/drm/card*-HDMI-A-*")):
+        card = os.path.basename(path).split("-")[0]
+        connector = int(open(os.path.join(path, "connector_id")).read())
+        fd = os.open(f"/dev/dri/{card}", os.O_RDWR | os.O_CLOEXEC)
+        try:
+            try:
+                fcntl.ioctl(fd, SET_MASTER)
+            except OSError:
+                pass  # already master as the first opener
+            found = find_property(fd, connector, b"Broadcast RGB")
+            if found is None:
+                continue
+            prop, current = found
+            if current == RANGES[name]:
+                continue  # unchanged: no needless mode set
+            try:
+                fcntl.ioctl(fd, OBJ_SETPROPERTY, bytearray(struct.pack("<QIII4x", RANGES[name], prop, connector, OBJECT_CONNECTOR)))
+                print(f"{os.path.basename(path)}: colour range {name}")
+            except OSError as error:
+                # Another program holds the display (labwc is running).
+                print(f"{os.path.basename(path)}: could not set the colour range: {error}", file=sys.stderr)
+        finally:
+            os.close(fd)
+
+
+if __name__ == "__main__":
+    main()

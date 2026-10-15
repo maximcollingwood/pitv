@@ -15,6 +15,7 @@ Environment=MEDIA_CACHE_DIR={{ db_dir }}/media
 Environment=MEDIA_CACHE_LIMIT_MB={{ media_cache_limit_mb }}
 Environment=MEDIA_MAX_ASSET_MB={{ media_max_asset_mb }}
 Environment=MEDIA_QUEUE_LIMIT={{ media_queue_limit }}
+Environment=HDMI_RANGE_PATH={{ hdmi_range_file }}
 EnvironmentFile=-/etc/kiosk/admin.env
 EnvironmentFile=-/etc/kiosk/media.env
 ExecStart=/usr/bin/node {{ backend_root }}/dist/index.js

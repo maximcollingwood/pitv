@@ -39,6 +39,8 @@ class Controller final : public QObject {
     Q_PROPERTY(QString backgroundStatus READ backgroundStatus NOTIFY backgroundChanged)
     Q_PROPERTY(bool backgroundPlaying READ backgroundPlaying NOTIFY backgroundChanged)
     Q_PROPERTY(double volume READ volume NOTIFY playbackChanged)
+    // A test card for judging the TV's colours, opened from the admin page.
+    Q_PROPERTY(bool colourCheck READ colourCheck NOTIFY colourCheckChanged)
 public:
     explicit Controller(QObject *parent = nullptr);
     ~Controller() override;
@@ -65,6 +67,7 @@ public:
     QString backgroundStatus() const { return background_.error.isEmpty() ? background_.asset.value("status").toString() : background_.error; }
     bool backgroundPlaying() const { return backgroundPlaying_; }
     double volume() const { return volume_; }
+    bool colourCheck() const { return colourCheck_; }
     void start(const QString &fixture = {});
     Q_INVOKABLE void action(const QString &key, int columns = 1);
     Q_INVOKABLE void selectIndex(int index);
@@ -80,6 +83,7 @@ public:
     Q_INVOKABLE QString absoluteUrl(const QString &path) const;
     Q_INVOKABLE QVariantMap lyrics(const QString &body, double width, double height) const;
     Q_INVOKABLE QString clockText(double seconds) const;
+    Q_INVOKABLE void showColourCheck(bool show);
 public slots:
     void mediaState(bool video, bool playing, double position, double duration, const QString &error);
     void mediaEnded(bool video);
@@ -100,6 +104,7 @@ signals:
     void changeVolume(double level);
     // A key reached the player; the overlay shows its controls again.
     void playerActivity();
+    void colourCheckChanged();
 private:
     struct View { QString page = "home", heading, type, section, category, playlist; QVariantMap item; int selected = 0; };
     struct Preparation { QString source, error, loaded; QJsonObject asset; int generation = 0; bool pending = false; };
@@ -113,7 +118,7 @@ private:
     Preparation foreground_, background_;
     QPointer<QNetworkReply> stream_;
     SseParser parser_;
-    QTimer reconnect_, heartbeat_, poll_, refresh_, watchdog_;
+    QTimer reconnect_, heartbeat_, poll_, refresh_, watchdog_, colourCheckTimeout_;
     QString cachePath_, notice_, backgroundTitle_, backgroundSource_;
     QThread cacheThread_;
     QObject *cacheWriter_ = nullptr;
@@ -125,6 +130,7 @@ private:
     QString zone_ = "content";
     int chromeIndex_ = 0;
     bool scrollAtStart_ = true, scrollAtEnd_ = false;
+    bool colourCheck_ = false;
     QStringList chromeControls(const QString &zone) const;
     void enterChrome(const QString &zone);
     double position_ = 0, duration_ = 0, volume_ = .05;

@@ -471,6 +471,53 @@ Window {
                 Pill { glyph: ""; label: "Phone remote"; focused: kiosk.focusedControl === "remote"; onClicked: kiosk.activateControl("remote") }
             }
         }
+        // The colour check (admin page, System, Picture): the brand colours and grey
+        // steps next to black and white, for judging the TV's colour range and
+        // picture settings. Any button closes it.
+        Rectangle {
+            id: colourCheck
+            anchors.fill: parent; visible: kiosk.colourCheck; color: "black"
+            MouseArea { anchors.fill: parent; onClicked: kiosk.showColourCheck(false) }
+            Heading { x: 80; y: 52; text: "Colour check"; color: theme.cream0; font.pixelSize: 40 }
+            Label { anchors.right: parent.right; anchors.rightMargin: 80; y: 66; text: "Press any button to close"; color: "#B4A3C2"; font.pixelSize: 20 }
+            Row {
+                x: 80; y: 132; spacing: 24
+                Repeater {
+                    model: [{ name: "Night purple", value: "#1B0532" }, { name: "Purple", value: "#290849" }, { name: "Plum", value: "#55185D" },
+                            { name: "Gold", value: "#ECB602" }, { name: "Cream", value: "#F5F0E8" }, { name: "White", value: "#FFFFFF" }]
+                    Column {
+                        spacing: 8
+                        Rectangle { width: 220; height: 170; radius: 12; color: modelData.value; border.width: 1; border.color: "#3A3A3A" }
+                        Label { text: modelData.name; color: theme.cream0; font.pixelSize: 20; font.weight: Font.DemiBold }
+                        Label { text: modelData.value; color: "#8C8C8C"; font.pixelSize: 16 }
+                    }
+                }
+            }
+            Repeater {
+                model: [{ title: "NEXT TO BLACK", steps: [0, 8, 16, 24, 32, 40, 48, 56] }, { title: "NEXT TO WHITE", steps: [199, 207, 215, 223, 231, 239, 247, 255] }]
+                Column {
+                    x: 80 + index * 736; y: 418; spacing: 12
+                    Eyebrow { text: modelData.title; color: theme.gold600 }
+                    Row {
+                        Repeater {
+                            model: modelData.steps
+                            Rectangle { width: 88; height: 110; color: Qt.rgba(modelData / 255, modelData / 255, modelData / 255, 1) }
+                        }
+                    }
+                    Row {
+                        Repeater {
+                            model: modelData.steps.length
+                            Text { width: 88; horizontalAlignment: Text.AlignHCenter; text: index + 1; color: "#8C8C8C"; font.family: theme.display; font.pixelSize: 16 }
+                        }
+                    }
+                }
+            }
+            Column {
+                x: 80; y: 640; width: 1440; spacing: 14
+                Label { width: parent.width; text: "Every grey square should look a little different from the next, the first one black and the last one white. Cream should look warmer than white."; color: theme.cream0; font.pixelSize: 23; wrapMode: Text.WordWrap; lineHeight: 1.25 }
+                Label { width: parent.width; text: "Bright squares merging into one white, and cream looking white: try the Limited colour range. The first square grey rather than black, and colours faded: try Full. Both fine but purple still looks blue: set the TV's colour temperature to Normal or Warm."; color: "#B4A3C2"; font.pixelSize: 20; wrapMode: Text.WordWrap; lineHeight: 1.3 }
+            }
+        }
         Connections {
             target: kiosk
             function onViewChanged() { scene.forceActiveFocus(); Qt.callLater(scene.reportScrollEdges) }

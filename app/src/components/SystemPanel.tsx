@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { api, ApiError, errorMessage, type LatestVersion, type SystemAction, type SystemStatus } from "../lib/api";
+import { api, ApiError, errorMessage, type ColourRange, type LatestVersion, type SystemAction, type SystemStatus } from "../lib/api";
 import { Icon } from "./Icon";
 
 type Phase = "idle" | "updating" | "restarting" | "off";
@@ -12,6 +12,12 @@ function duration(seconds: number) {
   if (hours) return `${hours} hour${hours === 1 ? "" : "s"}, ${minutes} min`;
   return `${minutes} min`;
 }
+
+const RANGES: { value: ColourRange; label: string; detail: string }[] = [
+  { value: "automatic", label: "Automatic", detail: "What most TVs expect. Start here." },
+  { value: "full", label: "Full", detail: "Try it if black looks grey and colours look faded." },
+  { value: "limited", label: "Limited", detail: "Try it if cream looks white and purple looks blue or too dark." },
+];
 
 // Destroying or interrupting asks first, saying exactly what will happen.
 function Confirm({ label, message, confirm, danger = false, disabled, onConfirm }: { label: ReactNode; message: string; confirm: string; danger?: boolean; disabled?: boolean; onConfirm: () => void }) {
@@ -110,9 +116,23 @@ export function SystemPanel({ onError }: { onError: (error: unknown) => void }) 
       await api.systemAction(action);
       if (action === "update") { previousRun.current = { startedAt: status?.update?.startedAt ?? null, requestedAt: Date.now() }; setPhase("updating"); setShowLog(true); setNotice("Updating. It usually takes 5 to 15 minutes; the screen restarts near the end."); }
       else if (action === "restart-screen") setNotice("The screen app restarts now and is back in a few seconds.");
+      else if (action.startsWith("range-")) {
+        const range = action.slice("range-".length) as ColourRange;
+        setStatus((current) => current && { ...current, colourRange: range });
+        setNotice("The screen restarts with the new colour range and is back in about 10 seconds. Then show the colour check again to compare.");
+      }
       else if (action === "reset-audio") setNotice("Sound restarts now; there are a few seconds of silence. If the TV stays quiet, check its volume and that it is on the Pi's input.");
       else if (action === "reboot") { setPhase("restarting"); setNotice("Restarting the Pi. This page reconnects when it is back, in about a minute."); }
       else { setPhase("off"); setNotice("Shutting down. When the screen goes dark (about 20 seconds) it is safe to unplug. Plug it back in to turn it on."); }
+    } catch (failure) { fail(failure); }
+  }
+
+  async function colourCheck(show: boolean) {
+    setError(null);
+    try {
+      await api.colourCheck(show);
+      // The screen reports the change in its next status, a moment later.
+      setTimeout(() => { void load(); }, 700);
     } catch (failure) { fail(failure); }
   }
 
@@ -121,6 +141,7 @@ export function SystemPanel({ onError }: { onError: (error: unknown) => void }) 
   const upToDate = latest?.commit && version.commit ? latest.commit === version.commit : null;
   const offline = phase === "restarting" || phase === "off";
   const power = device.power;
+  const checkShown = screen.page === "colour-check";
 
   return <div className="system">
     {notice && <p className={`notice ${phase === "idle" ? "notice--success" : ""}`} role="status">{notice}<button className="text-link" aria-label="Dismiss message" onClick={() => setNotice(null)}><Icon name="xmark" /></button></p>}
@@ -129,13 +150,29 @@ export function SystemPanel({ onError }: { onError: (error: unknown) => void }) 
     <div className="system-grid">
       <section className="panel system-card" aria-labelledby="system-screen">
         <div className="section-heading"><h2 id="system-screen">Screen</h2><span className="status-line"><span className={`status-dot ${screen.connected ? "is-online" : ""}`} />{screen.connected ? "Connected" : "Offline"}</span></div>
-        <p className="muted">{screen.connected ? `Showing ${screen.title || "the library"}${screen.playing ? ", playing" : ""}.` : "The screen app is not responding. Restarting it usually helps."}</p>
+        <p className="muted">{screen.connected ? `Showing ${checkShown ? "the colour check" : screen.title || "the library"}${screen.playing ? ", playing" : ""}.` : "The screen app is not responding. Restarting it usually helps."}</p>
         {screen.error && <p className="notice notice--error">{screen.error}</p>}
         <div className="form-actions">
           <button className="btn" disabled={offline} onClick={() => void act("restart-screen")}><Icon name="rotate-left" />Restart the screen app</button>
           <button className="btn" disabled={offline} onClick={() => void act("reset-audio")}><Icon name="volume-high" />Reset sound</button>
         </div>
         <p className="small muted">No sound from the TV although something is playing? Reset sound restarts the Pi's audio output, which brings some TVs back after a glitch.</p>
+      </section>
+
+      <section className="panel system-card" aria-labelledby="system-picture">
+        <div className="section-heading"><h2 id="system-picture">Picture</h2></div>
+        <p className="muted">Colours on the TV look wrong, like purple turning blue or cream turning white? Show the colour check on the TV, then compare the colour ranges below.</p>
+        <div className="form-actions">
+          <button className="btn" disabled={offline || !screen.connected} onClick={() => void colourCheck(!checkShown)}><Icon name="palette" />{checkShown ? "Hide the colour check" : "Show the colour check"}</button>
+        </div>
+        {status.colourRange && <fieldset className="range-choice" disabled={offline}>
+          <legend>Colour range</legend>
+          {RANGES.map((range) => <label key={range.value} className="checkbox-field">
+            <input type="radio" name="colour-range" value={range.value} checked={status.colourRange === range.value} onChange={() => void act(`range-${range.value}`)} />
+            <span>{range.label}<span className="small muted">{range.detail}</span></span>
+          </label>)}
+        </fieldset>}
+        <p className="small muted">Changing the range restarts the screen. If no range looks right, the TV's own settings are next: choose the picture mode Calibrated or Standard and the colour temperature Normal or Warm.</p>
       </section>
 
       <section className="panel system-card" aria-labelledby="system-software">

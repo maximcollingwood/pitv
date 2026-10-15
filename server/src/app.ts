@@ -41,6 +41,7 @@ export function createApp(options: AppOptions = {}) {
     updateLogPath: process.env.UPDATE_LOG_PATH ?? "/var/log/pitv-update.log",
     versionPath: process.env.VERSION_PATH ?? resolve(here, "../version.json"),
     dataDir: dirname(dbPath),
+    rangePath: process.env.HDMI_RANGE_PATH ?? "/etc/kiosk/hdmi-range",
     ...options.system,
   });
   const media = new MediaManager(db, {
@@ -192,7 +193,13 @@ app.register(async (admin) => {
   // System page: status, updates and restarts.
   admin.get("/api/admin/system", async () => {
     const [update, device] = await Promise.all([system.updateState(), system.device()]);
-    return { screen: status(), version: system.version(), update, device };
+    return { screen: status(), version: system.version(), update, device, colourRange: system.colourRange() };
+  });
+  // A test card on the TV for judging its colours; any remote button closes it.
+  admin.post<{ Body: { show?: unknown } }>("/api/admin/system/colour-check", async (req, reply) => {
+    if (!status().connected) return reply.code(409).send({ error: "The screen is not connected." });
+    deviceEvents.publish({ type: "colourCheck", show: req.body?.show !== false });
+    return { ok: true };
   });
   // Separate because it waits on the network (git ls-remote).
   admin.get<{ Querystring: { force?: string } }>("/api/admin/system/latest", async (req) => ({ latest: await system.latest(req.query.force === "1") }));
@@ -204,6 +211,7 @@ app.register(async (admin) => {
       if (!system.version().selfUpdate) return reply.code(409).send({ error: "This machine does not update itself. In the development VM, run vagrant provision." });
       if ((await system.updateState())?.running) return reply.code(409).send({ error: "An update is already running." });
     }
+    if (action.startsWith("range-") && system.colourRange() === null) return reply.code(409).send({ error: "This machine does not manage the screen's colour range." });
     if (!system.request(action)) return reply.code(503).send({ error: "System controls are not set up on this machine." });
     app.log.info({ action }, "System action requested from the admin page");
     return reply.code(202).send({ ok: true });

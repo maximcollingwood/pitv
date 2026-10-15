@@ -142,6 +142,9 @@ For an existing installation, deploy only after the native build and tests pass.
 The admin page's **System** tab updates from `kiosk_repo_branch` (Update now), shows
 the running version, the screen and device health (temperature, power supply,
 storage, network), and restarts the screen app, restarts or shuts down the Pi.
+Its Picture card shows a colour check on the TV and switches the HDMI colour range
+(Automatic, Full or Limited) for TVs that show colours washed out or clipped. The
+choice is kept in `/etc/kiosk/hdmi-range` and applied as the screen session starts.
 From a shell:
 
 ```sh
@@ -151,7 +154,8 @@ sudo reboot
 
 The backend stays unprivileged: the System tab writes one word into
 `/var/lib/pitv/system/request`, and the root `pitv-system.path` unit acts only on
-`update`, `restart-screen`, `reset-audio`, `reboot` and `poweroff`. Each update's output is in
+`update`, `restart-screen`, `reset-audio`, `range-automatic`, `range-full`,
+`range-limited`, `reboot` and `poweroff`. Each update's output is in
 `/var/log/pitv-update.log`. The development VM sets `kiosk_self_update: false`
 (it is provisioned from the shared folder instead).
 

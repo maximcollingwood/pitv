@@ -33,9 +33,12 @@ export interface MediaPlaylist {
   error: string | null;
   videoCount: number;
 }
-export type SystemAction = "update" | "restart-screen" | "reset-audio" | "reboot" | "poweroff";
+export type ColourRange = "automatic" | "full" | "limited";
+export type SystemAction = "update" | "restart-screen" | "reset-audio" | `range-${ColourRange}` | "reboot" | "poweroff";
 export interface SystemStatus {
   screen: DeviceStatus;
+  /** Null where the screen's colour range is not managed (development). */
+  colourRange: ColourRange | null;
   version: { commit: string | null; date: string | null; subject: string | null; branch: string | null; selfUpdate: boolean };
   update: { running: boolean; startedAt: number | null; finishedAt: number | null; succeeded: boolean | null } | null;
   device: {
@@ -122,5 +125,6 @@ export const api = {
   systemLatest: (force = false) => request<{ latest: LatestVersion | null }>(`/api/admin/system/latest${force ? "?force=1" : ""}`, {}, true),
   updateLog: () => request<{ lines: string[] }>("/api/admin/system/update-log", {}, true),
   systemAction: (action: SystemAction) => request<{ ok: boolean }>(`/api/admin/system/${action}`, json("POST"), true),
+  colourCheck: (show: boolean) => request<{ ok: boolean }>("/api/admin/system/colour-check", json("POST", { show }), true),
   retryPlaylist: (id: string) => request<unknown>(`/api/playlist?list=${encodeURIComponent(id)}&retry=1`),
 };
