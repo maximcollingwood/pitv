@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import lotus from "../assets/lotus-purple.png";
+import { Icon } from "../components/Icon";
 import { SoundSheet } from "../components/SoundSheet";
 import { TouchPad } from "../components/TouchPad";
 import { api, errorMessage, type BgState, type BgTrack, type DeviceStatus, type RemoteAction } from "../lib/api";
@@ -139,19 +141,22 @@ export function Remote() {
   const problem = error || syncError || (status?.connected ? status.error : null);
   return <main className="remote">
     <header className="remote__bar">
-      <div className="remote__status" role="status">
-        <span className={`status-dot ${status?.connected ? "is-online" : ""}`} />
-        <span>{label}</span>
-        {status?.connected && status.title && <span className="remote__showing">{status.title}</span>}
+      <div className="remote__brand">
+        <img className="brand-mark" src={lotus} alt="" />
+        <div className="remote__status" role="status">
+          <span className={`status-dot ${status?.connected ? "is-online" : ""}`} />
+          <span>{label}</span>
+          {status?.connected && status.title && <span className="remote__showing">{status.title}</span>}
+        </div>
       </div>
       <Link className="text-link" to="/admin">Edit library</Link>
     </header>
     <TouchPad disabled={disabled} title={hint.title} detail={hint.detail} onAction={press} />
     {problem && <p className="notice notice--error remote__notice" role="alert">{problem}{(error || syncError) && <button className="text-link" onClick={() => { setError(null); setSyncError(null); }}>Dismiss</button>}</p>}
     <nav className="remote__keys" aria-label="Screen shortcuts">
-      <button className="remote__key" disabled={disabled} onClick={() => press("back")}><span aria-hidden="true">↶</span>Back</button>
-      <button className="remote__key" disabled={disabled} onClick={() => press("home")}><span aria-hidden="true">⌂</span>Home</button>
-      <button className="remote__key" aria-haspopup="dialog" onClick={() => setSoundOpen(true)}><span aria-hidden="true">♪</span>Sound</button>
+      <button className="remote__key" disabled={disabled} onClick={() => press("back")}><Icon name="arrow-left" />Back</button>
+      <button className="remote__key" disabled={disabled} onClick={() => press("home")}><Icon name="house" />Home</button>
+      <button className="remote__key" aria-haspopup="dialog" onClick={() => setSoundOpen(true)}><Icon name="volume-high" />Sound</button>
     </nav>
     {soundOpen && <SoundSheet volume={volume} tracks={tracks} background={background} busy={backgroundBusy} live={live}
       onVolume={changeVolume} onBackground={(next) => void changeBackground(next)} onClose={() => setSoundOpen(false)} />}

@@ -1,0 +1,76 @@
+/* Bhakti House design tokens, ported from the design system's implementation
+   (bhio-ui/wwwroot/css/tokens.css). Fonts are bundled, never fetched. */
+
+@font-face { font-family:"Raleway"; font-style:normal; font-weight:400; font-display:swap; src:url("./assets/fonts/raleway-v37-latin-regular.woff2") format("woff2"); }
+@font-face { font-family:"Raleway"; font-style:normal; font-weight:500; font-display:swap; src:url("./assets/fonts/raleway-v37-latin-500.woff2") format("woff2"); }
+@font-face { font-family:"Raleway"; font-style:normal; font-weight:600; font-display:swap; src:url("./assets/fonts/raleway-v37-latin-600.woff2") format("woff2"); }
+@font-face { font-family:"Raleway"; font-style:normal; font-weight:700; font-display:swap; src:url("./assets/fonts/raleway-v37-latin-700.woff2") format("woff2"); }
+@font-face { font-family:"Parkinsans"; font-style:normal; font-weight:500; font-display:swap; src:url("./assets/fonts/parkinsans-v3-latin-500.woff2") format("woff2"); }
+@font-face { font-family:"Parkinsans"; font-style:normal; font-weight:600; font-display:swap; src:url("./assets/fonts/parkinsans-v3-latin-600.woff2") format("woff2"); }
+@font-face { font-family:"Parkinsans"; font-style:normal; font-weight:700; font-display:swap; src:url("./assets/fonts/parkinsans-v3-latin-700.woff2") format("woff2"); }
+@font-face { font-family:"Font Awesome 6 Free"; font-style:normal; font-weight:900; font-display:block; src:url("./assets/fonts/fa-solid-900.woff2") format("woff2"); }
+
+:root {
+  /* Brand */
+  --purple-900:#290849;
+  --purple-700:#55185D;
+  --gold-600:#ECB602;
+  --yellow-400:#FFD524;
+
+  /* Warm neutral surfaces */
+  --sand-300:#DCCFC0;
+  --cream-200:#F0E8DC;
+  --cream-100:#F5F0E8;
+  --cream-50:#F8F4ED;
+  --cream-0:#FFFBF1;
+
+  /* Ink */
+  --ink-900:#290849;
+  --ink-700:#4a4a4a;
+  --ink-500:#666666;
+  --on-dark:#ffffff;
+  --on-dark-muted:rgba(255,255,255,.82);
+
+  /* Lines */
+  --line-purple:rgba(41,8,73,.1);
+  --line-sand:#E4D8C8;
+
+  /* Status (the console skin's semantic colours) */
+  --sem-danger:#b42318;
+  --sem-success:#067647;
+
+  /* Semantic aliases */
+  --surface-page:var(--cream-100);
+  --surface-card:var(--cream-0);
+  --surface-well:var(--cream-200);
+  --text-heading:var(--ink-900);
+  --text-body:var(--ink-700);
+  --text-muted:var(--ink-500);
+  --brand-primary:var(--purple-700);
+  --brand-accent:var(--gold-600);
+
+  --grad-gold:linear-gradient(135deg,#ECB602,#FFD524);
+  --grad-purple:linear-gradient(135deg,#290849,#55185D);
+  --tint-accent-soft:rgba(236,182,2,.12);
+  --tint-purple-soft:rgba(85,24,93,.07);
+
+  /* Type */
+  --font-display:"Parkinsans","Raleway",system-ui,sans-serif;
+  --font-body:"Raleway",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-icon:"Font Awesome 6 Free";
+  --ls-wide:.5px;
+
+  /* Shape */
+  --radius-md:8px;
+  --radius-lg:12px;
+  --radius-xl:15px;
+  --radius-3xl:20px;
+  --radius-pill:25px;
+
+  --shadow-xs:0 2px 8px rgba(41,8,73,.08);
+  --shadow-md:0 8px 25px rgba(0,0,0,.08);
+  --shadow-purple:0 10px 30px rgba(41,8,73,.3);
+  --shadow-brand-btn:0 4px 15px rgba(41,8,73,.18);
+
+  --dur-fast:.25s;
+}

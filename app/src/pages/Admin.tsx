@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ContentEditor, TYPE_LABEL } from "../components/ContentEditor";
+import lotusGold from "../assets/lotus-gold.png";
+import lotus from "../assets/lotus-purple.png";
 import { DeviceCard } from "../components/DeviceCard";
+import { Icon, type IconName } from "../components/Icon";
 import { MediaPreparation } from "../components/MediaPreparation";
 import { ScreenSettings } from "../components/ScreenSettings";
 import { api, ApiError, clearToken, errorMessage, getToken, setToken, type Item, type Section, type SectionType } from "../lib/api";
@@ -9,7 +12,7 @@ import { api, ApiError, clearToken, errorMessage, getToken, setToken, type Item,
 type View = "library" | "background" | "preparation" | "settings";
 type SectionDraft = { id?: number; name: string; type: SectionType };
 const BG_PATH = "/api/admin/background/tracks";
-const TYPE_ICON: Record<SectionType, string> = { articles: "Aa", lyrics: "♫", media: "▶", catalog: "▤", faq: "?" };
+const TYPE_ICON: Record<SectionType, IconName> = { articles: "book-open", lyrics: "music", media: "circle-play", catalog: "book", faq: "circle-question" };
 
 export function Admin() {
   const [token, setSession] = useState(getToken);
@@ -121,25 +124,25 @@ export function Admin() {
 
   return <main className={`shell admin-shell ${!token ? "login-shell" : ""}`}>
     <header className="topbar">
-      <Link className="wordmark" to="/remote"><span className="brand-mark" aria-hidden="true">✦</span> PiTV <span>COMPANION</span></Link>
-      <Link className="text-link" to="/remote">Remote <span aria-hidden="true">↗</span></Link>
+      <Link className="wordmark" to="/remote"><img className="brand-mark" src={lotusGold} alt="" /> PiTV <span>COMPANION</span></Link>
+      <Link className="text-link" to="/remote">Remote <Icon name="arrow-up-right" /></Link>
     </header>
     {!token ? <>
       <div className="page-intro"><p className="eyebrow">THE LIBRARY IS YOURS TO SHAPE</p><h1>A thoughtful space.<br /><em>A personal touch.</em></h1><p className="muted">Add something to read, watch or listen to.</p></div>
       <form className="panel login-form" onSubmit={(event) => void login(event)}>
-        <span className="login-symbol" aria-hidden="true">✦</span><h2>Welcome back</h2><p className="muted">Enter your administrator PIN to edit the library.</p>
+        <img className="login-symbol" src={lotus} alt="" /><h2>Welcome back</h2><p className="muted">Enter your administrator PIN to edit the library.</p>
         <label htmlFor="pin">Administrator PIN<input id="pin" type="password" inputMode="numeric" autoComplete="current-password" required maxLength={32} value={pin} onChange={(event) => setPin(event.target.value)} disabled={busy} /></label>
         {error && <p className="notice notice--error" role="alert">{error}</p>}
-        <button className="btn btn--primary" disabled={busy}>{busy ? "Unlocking…" : "Unlock library"}<span aria-hidden="true">→</span></button>
+        <button className="btn btn--primary" disabled={busy}>{busy ? "Unlocking…" : "Unlock library"}<Icon name="arrow-right" /></button>
       </form>
     </> : <>
       <nav className="admin-nav" aria-label="Library administration">
         {([['library', 'Library'], ['background', 'Background audio'], ['preparation', 'Media status'], ['settings', 'Screen settings']] as [View, string][]).map(([id, label]) => <button key={id} className={view === id ? "is-active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => navigate(id)}>{label}</button>)}
-        <button className="sign-out" onClick={signOut}>Lock</button>
+        <button className="sign-out" onClick={signOut}><Icon name="lock" />Lock</button>
       </nav>
       <div className="admin-heading"><div className="page-intro"><p className="eyebrow">{active ? TYPE_LABEL[active.type] : "CURATED BY YOU"}</p><h1>{title}</h1></div><DeviceCard compact /></div>
       {error && <p className="notice notice--error" role="alert">{error}<button className="text-link" onClick={() => { setError(null); refresh(); }}>Try again</button></p>}
-      {message && !error && <p className="notice notice--success" role="status">{message}<button className="text-link" aria-label="Dismiss message" onClick={() => setMessage(null)}>×</button></p>}
+      {message && !error && <p className="notice notice--success" role="status">{message}<button className="text-link" aria-label="Dismiss message" onClick={() => setMessage(null)}><Icon name="xmark" /></button></p>}
       {sectionDraft ? <form className="panel editor-form" onSubmit={(event) => void saveSection(event)}>
         <fieldset disabled={busy}>
           {!sectionDraft.id && <label>Collection type<select value={sectionDraft.type} onChange={(event) => setSectionDraft({ ...sectionDraft, type: event.target.value as SectionType })}>{(Object.keys(TYPE_LABEL) as SectionType[]).map((type) => <option key={type} value={type}>{TYPE_LABEL[type]}</option>)}</select></label>}
@@ -150,16 +153,16 @@ export function Admin() {
       : view === "settings" ? <ScreenSettings onError={handleError} onSaved={() => setMessage("Screen settings saved.")} />
       : view === "preparation" ? <MediaPreparation onError={handleError} />
       : itemPath ? <>
-        <div className="section-heading list-toolbar">{active ? <button className="text-link" onClick={() => { setActive(null); setMessage(null); }}>← All sections</button> : <p className="muted">Paste a YouTube link. We’ll take care of the rest.</p>}<button className="btn btn--primary" disabled={busy} onClick={() => { setEditing({ item: null }); setMessage(null); }}>+ {view === "background" ? "Add audio" : "Add content"}</button></div>
-        {loading ? <p role="status">Loading your collection…</p> : items.length === 0 ? <div className="empty-state"><span aria-hidden="true">✦</span><h2>A little room for inspiration</h2><p>Add the first {view === "background" ? "YouTube link" : "item"} to this collection.</p></div> : <ul className="content-list">{items.map((item, index) => <li className="content-row" key={item.id}>
+        <div className="section-heading list-toolbar">{active ? <button className="text-link" onClick={() => { setActive(null); setMessage(null); }}><Icon name="arrow-left" />All sections</button> : <p className="muted">Paste a YouTube link. We’ll take care of the rest.</p>}<button className="btn btn--primary" disabled={busy} onClick={() => { setEditing({ item: null }); setMessage(null); }}><Icon name="plus" />{view === "background" ? "Add audio" : "Add content"}</button></div>
+        {loading ? <p role="status">Loading your collection…</p> : items.length === 0 ? <div className="empty-state"><img className="brand-mark" src={lotus} alt="" /><h2>A little room for inspiration</h2><p>Add the first {view === "background" ? "YouTube link" : "item"} to this collection.</p></div> : <ul className="content-list">{items.map((item, index) => <li className="content-row" key={item.id}>
           <div className="content-row__main"><span className="item-number">{String(index + 1).padStart(2, "0")}</span><div><h2>{String(item.question || item.title || "YouTube import")}</h2><p className="small muted source-url">{String(item.youtube_url || item.author || item.book_title || String(item.body ?? "").slice(0, 120))}</p>{Boolean(item.is_playlist) && <span className="tag">Playlist</span>}</div></div>
-          <div className="row-actions">{ordered && <><button className="btn btn--small btn--icon" disabled={busy || index === 0} aria-label={`Move item ${index + 1} up`} onClick={() => void move(index, -1)}>↑</button><button className="btn btn--small btn--icon" disabled={busy || index === items.length - 1} aria-label={`Move item ${index + 1} down`} onClick={() => void move(index, 1)}>↓</button></>}<button className="btn btn--small" disabled={busy} onClick={() => { setEditing({ item }); setMessage(null); }}>Edit</button><button className="btn btn--small btn--danger" disabled={busy} onClick={() => void deleteItem(item)}>Delete</button></div>
+          <div className="row-actions">{ordered && <><button className="btn btn--small btn--icon" disabled={busy || index === 0} aria-label={`Move item ${index + 1} up`} onClick={() => void move(index, -1)}><Icon name="arrow-up" /></button><button className="btn btn--small btn--icon" disabled={busy || index === items.length - 1} aria-label={`Move item ${index + 1} down`} onClick={() => void move(index, 1)}><Icon name="arrow-down" /></button></>}<button className="btn btn--small" disabled={busy} onClick={() => { setEditing({ item }); setMessage(null); }}>Edit</button><button className="btn btn--small btn--danger" disabled={busy} onClick={() => void deleteItem(item)}>Delete</button></div>
         </li>)}</ul>}
       </> : <>
-        <div className="section-heading list-toolbar"><p className="muted">Make room for ideas that stay with you.</p><button className="btn btn--primary" disabled={busy} onClick={() => { setSectionDraft({ type: "articles", name: "" }); setMessage(null); }}>+ Add section</button></div>
-        {loading ? <p role="status">Opening your library…</p> : sections.length === 0 ? <div className="empty-state"><span aria-hidden="true">✦</span><h2>Start with a collection</h2><p>Create a section for articles, lyrics, videos, books or questions.</p></div> : <ul className="section-grid">{sections.map((section, index) => <li className="collection-card" key={section.id}>
-          <button className="collection-open" onClick={() => { setActive(section); setMessage(null); }}><span className={`collection-icon collection-icon--${section.type}`} aria-hidden="true">{TYPE_ICON[section.type]}</span><span className="eyebrow">{TYPE_LABEL[section.type]}</span><h2>{section.name}</h2><span className="collection-link">Open collection <span aria-hidden="true">↗</span></span></button>
-          <div className="row-actions"><button className="btn btn--small btn--icon" disabled={busy || index === 0} aria-label={`Move ${section.name} up`} onClick={() => void move(index, -1, true)}>↑</button><button className="btn btn--small btn--icon" disabled={busy || index === sections.length - 1} aria-label={`Move ${section.name} down`} onClick={() => void move(index, 1, true)}>↓</button><button className="btn btn--small" disabled={busy} onClick={() => setSectionDraft({ id: section.id, name: section.name, type: section.type })}>Rename</button><button className="btn btn--small btn--danger" disabled={busy} onClick={() => void deleteSection(section)}>Delete</button></div>
+        <div className="section-heading list-toolbar"><p className="muted">Make room for ideas that stay with you.</p><button className="btn btn--primary" disabled={busy} onClick={() => { setSectionDraft({ type: "articles", name: "" }); setMessage(null); }}><Icon name="plus" />Add section</button></div>
+        {loading ? <p role="status">Opening your library…</p> : sections.length === 0 ? <div className="empty-state"><img className="brand-mark" src={lotus} alt="" /><h2>Start with a collection</h2><p>Create a section for articles, lyrics, videos, books or questions.</p></div> : <ul className="section-grid">{sections.map((section, index) => <li className="collection-card" key={section.id}>
+          <button className="collection-open" onClick={() => { setActive(section); setMessage(null); }}><span className={`collection-icon collection-icon--${section.type}`} aria-hidden="true"><Icon name={TYPE_ICON[section.type]} /></span><span className="eyebrow">{TYPE_LABEL[section.type]}</span><h2>{section.name}</h2><span className="collection-link">Open collection <Icon name="arrow-right" /></span></button>
+          <div className="row-actions"><button className="btn btn--small btn--icon" disabled={busy || index === 0} aria-label={`Move ${section.name} up`} onClick={() => void move(index, -1, true)}><Icon name="arrow-up" /></button><button className="btn btn--small btn--icon" disabled={busy || index === sections.length - 1} aria-label={`Move ${section.name} down`} onClick={() => void move(index, 1, true)}><Icon name="arrow-down" /></button><button className="btn btn--small" disabled={busy} onClick={() => setSectionDraft({ id: section.id, name: section.name, type: section.type })}>Rename</button><button className="btn btn--small btn--danger" disabled={busy} onClick={() => void deleteSection(section)}>Delete</button></div>
         </li>)}</ul>}
       </>}
     </>}
