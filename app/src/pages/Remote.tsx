@@ -10,6 +10,7 @@ import { useDeviceStatus } from "../lib/useDeviceStatus";
 // What a swipe or tap does on the page the screen is showing.
 function padHint(status: DeviceStatus | null, offline: boolean) {
   if (offline) return { title: "Waiting for the screen", detail: "The pad comes back when the screen reconnects." };
+  if (status?.tv === "standby") return { title: "The TV is off", detail: "Tap to turn it on." };
   if (status?.page === "colour-check") return { title: "Tap to close the colour check", detail: "Any button on this remote closes it." };
   if (status?.page === "player") return { title: status.playing ? "Tap to pause" : "Tap to play", detail: "Swipe left or right to skip 10 seconds, up or down for volume." };
   if (status?.page === "lyrics") return { title: "Swipe up or down to scroll", detail: "Swipe left or right for the next song." };
@@ -138,7 +139,7 @@ export function Remote() {
   const { status, error: statusError } = connection;
   const disabled = !status?.connected;
   const hint = padHint(status, disabled);
-  const label = statusError ? "Library unreachable" : status?.connected ? "Screen connected" : status ? "Screen offline" : "Connecting…";
+  const label = statusError ? "Library unreachable" : status?.connected ? status.tv === "standby" ? "TV is off" : "Screen connected" : status ? "Screen offline" : "Connecting…";
   const problem = error || syncError || (status?.connected ? status.error : null);
   return <main className="remote">
     <header className="remote__bar">
@@ -147,7 +148,7 @@ export function Remote() {
         <div className="remote__status" role="status">
           <span className={`status-dot ${status?.connected ? "is-online" : ""}`} />
           <span>{label}</span>
-          {status?.connected && status.title && <span className="remote__showing">{status.title}</span>}
+          {status?.connected && status.tv !== "standby" && status.title && <span className="remote__showing">{status.title}</span>}
         </div>
       </div>
       <Link className="text-link" to="/admin">Edit library</Link>
@@ -158,6 +159,7 @@ export function Remote() {
       <button className="remote__key" disabled={disabled} onClick={() => press("back")}><Icon name="arrow-left" />Back</button>
       <button className="remote__key" disabled={disabled} onClick={() => press("home")}><Icon name="house" />Home</button>
       <button className="remote__key" aria-haspopup="dialog" onClick={() => setSoundOpen(true)}><Icon name="volume-high" />Sound</button>
+      {status?.tv && <button className="remote__key" disabled={disabled} onClick={() => press("power")}><Icon name="power-off" />{status.tv === "standby" ? "Turn on" : "Turn off"}</button>}
     </nav>
     {soundOpen && <SoundSheet volume={volume} tracks={tracks} background={background} busy={backgroundBusy} live={live}
       onVolume={changeVolume} onBackground={(next) => void changeBackground(next)} onClose={() => setSoundOpen(false)} />}

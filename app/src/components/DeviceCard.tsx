@@ -11,7 +11,7 @@ export function DeviceStatusCard({ connection, compact = false }: { connection: 
     <div className="status-line" role="status"><span className={`status-dot ${status?.connected ? "is-online" : ""}`} />{label}</div>
     {!compact && <>
       <p className="device-card__title">{status?.connected ? status.title || "Library home" : "Your library screen"}</p>
-      <p className="muted">{error || (status?.connected ? status.playing ? "Playing on the TV" : "Ready to explore" : status ? "Controls will reconnect when the screen is ready." : "Checking the connection…")}</p>
+      <p className="muted">{error || (status?.connected ? status.tv === "standby" ? "The TV is off" : status.playing ? "Playing on the TV" : "Ready to explore" : status ? "Controls will reconnect when the screen is ready." : "Checking the connection…")}</p>
       {status?.error && <p className="notice notice--error" role="alert">{status.error}</p>}
     </>}
   </section>;

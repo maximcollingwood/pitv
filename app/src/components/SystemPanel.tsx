@@ -150,7 +150,9 @@ export function SystemPanel({ onError }: { onError: (error: unknown) => void }) 
     <div className="system-grid">
       <section className="panel system-card" aria-labelledby="system-screen">
         <div className="section-heading"><h2 id="system-screen">Screen</h2><span className="status-line"><span className={`status-dot ${screen.connected ? "is-online" : ""}`} />{screen.connected ? "Connected" : "Offline"}</span></div>
-        <p className="muted">{screen.connected ? `Showing ${checkShown ? "the colour check" : screen.title || "the library"}${screen.playing ? ", playing" : ""}.` : "The screen app is not responding. Restarting it usually helps."}</p>
+        <p className="muted">{!screen.connected ? "The screen app is not responding. Restarting it usually helps."
+          : screen.tv === "standby" ? "The TV is off, so the screen is asleep. It wakes when the TV comes on."
+          : `Showing ${checkShown ? "the colour check" : screen.title || "the library"}${screen.playing ? ", playing" : ""}.`}</p>
         {screen.error && <p className="notice notice--error">{screen.error}</p>}
         <div className="form-actions">
           <button className="btn" disabled={offline} onClick={() => void act("restart-screen")}><Icon name="rotate-left" />Restart the screen app</button>

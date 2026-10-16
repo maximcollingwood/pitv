@@ -1,3 +1,4 @@
+#include "Cec.h"
 #include "Controller.h"
 #include "Fonts.h"
 #include "MediaEngine.h"
@@ -57,7 +58,18 @@ int main(int argc, char **argv) {
     QObject::connect(&controller, &Controller::changeVolume, media, &MediaEngine::setVolume);
     QObject::connect(media, &MediaEngine::status, &controller, &Controller::mediaState);
     QObject::connect(media, &MediaEngine::ended, &controller, &Controller::mediaEnded);
+    QObject::connect(&controller, &Controller::restartAudio, media, &MediaEngine::restartAudio);
     mediaThread.start();
+    // HDMI-CEC: follow the TV's power and take its remote's buttons. HDMI0 is the
+    // first CEC adapter on a Raspberry Pi.
+    Cec cec;
+    if (!smoke && !verifyPlayback) controller.setCec(cec.open(qEnvironmentVariable("PITV_CEC_DEVICE", "/dev/cec0")));
+    QObject::connect(&cec, &Cec::key, &controller, &Controller::press);
+    QObject::connect(&cec, &Cec::tvStandby, &controller, &Controller::tvStandby);
+    QObject::connect(&cec, &Cec::tvOn, &controller, &Controller::tvOn);
+    QObject::connect(&controller, &Controller::oneTouchPlay, &cec, &Cec::oneTouchPlay);
+    QObject::connect(&controller, &Controller::standbyTv, &cec, &Cec::standbyTv);
+    QObject::connect(&controller, &Controller::tvChanged, &cec, [&cec, &controller] { cec.setAsleep(controller.tvAsleep()); });
     QQmlApplicationEngine engine;
     Fonts::load();
     engine.rootContext()->setContextProperty("brandFonts", Fonts::families());

@@ -4,7 +4,7 @@ export interface Config { title: string; subtitle: string; dark: boolean; hero: 
 export type Item = Record<string, unknown> & { id: number };
 export interface BgTrack { id: number; title: string; youtube_url: string; position: number }
 export interface BgState { trackId: number | null; playing: boolean }
-export type RemoteAction = "up" | "down" | "left" | "right" | "select" | "back" | "home";
+export type RemoteAction = "up" | "down" | "left" | "right" | "select" | "back" | "home" | "power";
 export interface DeviceStatus {
   connected: boolean;
   updatedAt: number | string | null;
@@ -14,6 +14,8 @@ export interface DeviceStatus {
   position: number;
   duration: number;
   error: string | null;
+  // The TV's power, followed over HDMI-CEC; null when the screen cannot tell.
+  tv?: "on" | "standby" | null;
 }
 export interface MediaAsset {
   key: string;

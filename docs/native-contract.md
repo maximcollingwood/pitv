@@ -23,7 +23,8 @@ The phone remains a web client. The native process defaults to
 use ordinary `data:` frames containing one of:
 
 - `{ "type": "library" }`: fetch a new snapshot asynchronously.
-- `{ "type": "remote", "action": "up|down|left|right|select|back|home" }`
+- `{ "type": "remote", "action": "up|down|left|right|select|back|home|power" }`:
+  `power` turns the TV off, or on and over to PiTV, over HDMI-CEC.
 - `{ "type": "background", "tracks": [], "state": {"trackId":null,"playing":false} }`
 - `{ "type": "volume", "level": 0.05 }`
 - `{ "type": "media", "asset": { ... } }`
@@ -33,7 +34,8 @@ do not replay old navigation after a disconnected screen reconnects. Refresh the
 snapshot after reconnect. Keepalive frames arrive every 15 seconds.
 
 `POST /api/device/status` from loopback is the native heartbeat, every 5 seconds:
-`{page,title,playing,position,duration,error}`. `GET /api/device/status` adds
+`{page,title,playing,position,duration,error,tv}`, where `tv` is the TV's power as
+followed over HDMI-CEC (`"on"`, `"standby"`, or null without CEC). `GET /api/device/status` adds
 `connected` and `updatedAt` for the phone. The backend accepts writes only from
 loopback; nginx must prevent external clients from using its loopback proxy to
 write status. Public `/api/system/volume` stores/publishes the desired level;

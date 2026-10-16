@@ -33,6 +33,14 @@ Controller::Controller(QObject *parent) : QObject(parent) {
     // A forgotten colour check does not stay on the screen.
     colourCheckTimeout_.setInterval(10 * 60 * 1000); colourCheckTimeout_.setSingleShot(true);
     connect(&colourCheckTimeout_, &QTimer::timeout, this, [this] { showColourCheck(false); });
+    // Some TVs (the library's Vizio) stay silent after they come on until the
+    // sound output restarts. Once the TV's HDMI input is up, restart it, then let
+    // background music play again on the fresh output.
+    audioRestart_.setSingleShot(true);
+    connect(&audioRestart_, &QTimer::timeout, this, [this] {
+        emit restartAudio();
+        QTimer::singleShot(4000, this, [this] { if (!audioRestart_.isActive()) { holdAudio_ = false; syncBackground(); } });
+    });
     // Cache commits fsync, which can stall for seconds while downloads flush to
     // the SD card, so they never run on the UI thread.
     cacheWriter_ = new QObject;
@@ -178,7 +186,7 @@ void Controller::connectEvents() {
 void Controller::event(const QJsonObject &object) {
     const auto type = object.value("type").toString();
     if (type == "library") fetchLibrary();
-    else if (type == "remote") action(object.value("action").toString(), view_.page == "home" ? 2 : 1);
+    else if (type == "remote") press(object.value("action").toString());
     else if (type == "volume") {
         volume_ = std::clamp(object.value("level").toDouble(.05), 0., 1.);
         emit changeVolume(volume_); emit playbackChanged();
@@ -293,11 +301,35 @@ void Controller::openItem(const QVariantMap &item) {
         navigate(next);
     }
 }
+void Controller::press(const QString &key) { action(key, view_.page == "home" ? 2 : 1); }
 void Controller::action(const QString &key, int columns) {
+    if (key == "power") {
+        if (tvAsleep_) wakeTv();
+        else if (cec_) { emit standbyTv(); tvStandby(); }
+        return;
+    }
+    // Like a TV box: a button pressed while the TV is off turns it on and
+    // switches it to us, and does nothing else.
+    if (tvAsleep_) { wakeTv(); return; }
     // Any button closes the colour check, and does nothing else.
     if (colourCheck_) { showColourCheck(false); return; }
     if (key == "home") { home(); return; }
     if (key == "back") { back(); return; }
+    // Media buttons on the TV remote: the video in the player, otherwise the background music.
+    if (key == "play" || key == "pause" || key == "playpause") {
+        if (view_.page == "player") {
+            emit playerActivity();
+            if (!foreground_.error.isEmpty()) { if (key != "pause") retry(); }
+            else if (key == "playpause" || (key == "play") != playing_) emit toggleVideo();
+        } else if (backgroundTrack_ >= 0 && (key == "playpause" || (key == "play") != backgroundDesired_)) toggleBackground();
+        return;
+    }
+    if (key == "rewind" || key == "forward" || key == "stop") {
+        if (view_.page != "player") return;
+        if (key == "stop") { back(); return; }
+        emit playerActivity(); emit seekVideo(key == "rewind" ? -10 : 10);
+        return;
+    }
     if (view_.page == "player") {
         emit playerActivity();
         if (key == "select") { if (!foreground_.error.isEmpty()) retry(); else emit toggleVideo(); }
@@ -406,7 +438,7 @@ void Controller::asset(bool video, const QJsonObject &object) {
         // A completed file is local to the appliance. WAN failures never interrupt it.
         if (!uri.isEmpty() && uri != prep.loaded) {
             prep.loaded = uri;
-            if (video || (backgroundDesired_ && view_.page != "player")) emit loadMedia(uri, video);
+            if (video || backgroundAudible()) emit loadMedia(uri, video);
             else prep.loaded.clear();
         }
         cachedAssets_.insert((video ? "video:" : "audio:") + prep.source, object); saveCache();
@@ -443,7 +475,7 @@ void Controller::syncBackground() {
         emit stopMedia(false);
         if (!source.isEmpty() && backgroundDesired_) prepare(false, source);
     } else if (backgroundDesired_ && background_.source.isEmpty()) prepare(false, source);
-    const bool pause = !backgroundDesired_ || view_.page == "player";
+    const bool pause = !backgroundAudible();
     if (!pause && background_.loaded.isEmpty() && background_.asset.value("status") == "ready") asset(false, background_.asset);
     emit pauseMedia(pause, false); emit backgroundChanged();
 }
@@ -489,7 +521,7 @@ void Controller::mediaState(bool video, bool playing, double position, double du
     } else { backgroundPlaying_ = playing; if (!error.isEmpty()) background_.error = error; else if (playing) background_.error.clear(); emit backgroundChanged(); }
 }
 void Controller::mediaEnded(bool video) {
-    if (!video && backgroundDesired_ && view_.page != "player" && !background_.loaded.isEmpty()) emit loadMedia(background_.loaded, false);
+    if (!video && backgroundAudible() && !background_.loaded.isEmpty()) emit loadMedia(background_.loaded, false);
 }
 void Controller::showColourCheck(bool show) {
     if (show) colourCheckTimeout_.start(); else colourCheckTimeout_.stop();
@@ -498,8 +530,30 @@ void Controller::showColourCheck(bool show) {
     emit colourCheckChanged();
     publishStatus();
 }
+void Controller::tvStandby() {
+    if (!cec_ || tvAsleep_) return;
+    tvAsleep_ = true; holdAudio_ = false; audioRestart_.stop();
+    showColourCheck(false);
+    // The next person to turn the TV on starts at the home screen, as on a TV box.
+    home();
+    emit tvChanged();
+}
+void Controller::tvOn(bool started) {
+    if (!cec_ || (!tvAsleep_ && !started)) return;
+    const bool woke = tvAsleep_;
+    tvAsleep_ = false; holdAudio_ = true;
+    // A TV that just powered on takes a few seconds more to bring up its HDMI input.
+    audioRestart_.start(started ? 8000 : 1000);
+    syncBackground();
+    if (woke) { emit tvChanged(); publishStatus(); }
+}
+void Controller::wakeTv() {
+    emit oneTouchPlay();
+    tvOn(true);
+}
 void Controller::publishStatus() {
     if (fixture_) return;
-    QJsonObject body{{"page", colourCheck_ ? QStringLiteral("colour-check") : view_.page}, {"title", colourCheck_ ? QStringLiteral("the colour check") : view_.heading}, {"playing", playing_}, {"position", position_}, {"duration", duration_}, {"error", foreground_.error}};
+    QJsonObject body{{"page", colourCheck_ ? QStringLiteral("colour-check") : view_.page}, {"title", colourCheck_ ? QStringLiteral("the colour check") : view_.heading}, {"playing", playing_}, {"position", position_}, {"duration", duration_}, {"error", foreground_.error},
+        {"tv", cec_ ? QJsonValue(tvAsleep_ ? "standby" : "on") : QJsonValue()}};
     request("/api/device/status", &body, [](const QJsonObject &, const QString &) {});
 }

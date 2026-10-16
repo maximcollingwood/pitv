@@ -9,7 +9,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.22)
 pkg_check_modules(QRENCODE REQUIRED IMPORTED_TARGET libqrencode)
 qt_add_executable(pitv-native
-    src/main.cpp src/Controller.cpp src/Controller.h src/MediaEngine.cpp src/MediaEngine.h
+    src/main.cpp src/Cec.cpp src/Cec.h src/Controller.cpp src/Controller.h src/MediaEngine.cpp src/MediaEngine.h
     src/SseParser.cpp src/SseParser.h src/LyricsLayout.cpp src/LyricsLayout.h
     src/Fonts.cpp src/Fonts.h src/QrProvider.h qml.qrc)
 target_link_libraries(pitv-native PRIVATE Qt6::Core Qt6::Gui Qt6::Quick Qt6::Network
@@ -19,7 +19,7 @@ install(TARGETS pitv-native RUNTIME DESTINATION bin)
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 REQUIRED COMPONENTS Test)
-    qt_add_executable(pitv-native-tests tests/CoreTests.cpp src/Controller.cpp src/Controller.h src/SseParser.cpp src/LyricsLayout.cpp src/Fonts.cpp)
+    qt_add_executable(pitv-native-tests tests/CoreTests.cpp src/Cec.cpp src/Cec.h src/Controller.cpp src/Controller.h src/SseParser.cpp src/LyricsLayout.cpp src/Fonts.cpp)
     target_include_directories(pitv-native-tests PRIVATE src)
     target_link_libraries(pitv-native-tests PRIVATE Qt6::Test Qt6::Gui Qt6::Network)
     target_compile_definitions(pitv-native-tests PRIVATE TEST_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/library.json")

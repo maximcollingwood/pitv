@@ -1,3 +1,4 @@
+#include "Cec.h"
 #include "Controller.h"
 #include "LyricsLayout.h"
 #include "SseParser.h"
@@ -243,6 +244,93 @@ private slots:
         QVERIFY(!controller.playing());
         QVERIFY(controller.mediaError().isEmpty());
         QCOMPARE(controller.position(), 0.);
+    }
+    void cecFollowsTheTvAndAnswersIt() {
+        Cec cec;
+        QList<QByteArray> sent;
+        cec.simulate(4, 0x1000, [&sent](const QByteArray &frame) { sent.append(frame); });
+        QSignalSpy keys(&cec, &Cec::key), standby(&cec, &Cec::tvStandby), on(&cec, &Cec::tvOn);
+        cec.handle(QByteArray::fromHex("0f36")); // TV to all: Standby
+        QCOMPARE(standby.count(), 1);
+        cec.handle(QByteArray::fromHex("0f84000000")); // TV to all: Report Physical Address, as it powers on
+        QCOMPARE(on.count(), 1);
+        QCOMPARE(on.last().at(0).toBool(), true);
+        cec.handle(QByteArray::fromHex("044401")); // TV to us: User Control Pressed, Up
+        cec.handle(QByteArray::fromHex("0445"));
+        cec.handle(QByteArray::fromHex("04440d")); // Back
+        cec.handle(QByteArray::fromHex("044461")); // Pause-Play Function
+        QCOMPARE(keys.count(), 3);
+        QCOMPARE(keys.at(0).at(0).toString(), "up");
+        QCOMPARE(keys.at(1).at(0).toString(), "back");
+        QCOMPARE(keys.at(2).at(0).toString(), "playpause");
+        QCOMPARE(on.last().at(0).toBool(), false);
+        QVERIFY(sent.isEmpty());
+        // Power status, menu status and Feature Abort for what a playback device does not do.
+        cec.handle(QByteArray::fromHex("048f"));
+        QCOMPARE(sent.last(), QByteArray::fromHex("409000"));
+        cec.setAsleep(true);
+        cec.handle(QByteArray::fromHex("048f"));
+        QCOMPARE(sent.last(), QByteArray::fromHex("409001"));
+        cec.handle(QByteArray::fromHex("048d00"));
+        QCOMPARE(sent.last(), QByteArray::fromHex("408e00"));
+        cec.handle(QByteArray::fromHex("041a01"));
+        QCOMPARE(sent.last(), QByteArray::fromHex("40001a00"));
+        cec.handle(QByteArray::fromHex("040090")); // a Feature Abort is not answered
+        QCOMPARE(sent.size(), 4);
+        // Routing: we answer for our input only while the TV shows it.
+        sent.clear();
+        cec.handle(QByteArray::fromHex("0f85"));
+        QCOMPARE(sent, QList<QByteArray>{QByteArray::fromHex("4f821000")});
+        cec.handle(QByteArray::fromHex("0f862000")); // Set Stream Path to another input
+        sent.clear();
+        cec.handle(QByteArray::fromHex("0f85"));
+        QVERIFY(sent.isEmpty());
+        cec.handle(QByteArray::fromHex("0f8020001000")); // Routing Change back to us
+        QCOMPARE(sent, QList<QByteArray>{QByteArray::fromHex("4f821000")});
+        // One Touch Play: Image View On, then Active Source. Standby turns the TV off.
+        sent.clear();
+        cec.oneTouchPlay();
+        cec.standbyTv();
+        QCOMPARE(sent, (QList<QByteArray>{QByteArray::fromHex("4004"), QByteArray::fromHex("4f821000"), QByteArray::fromHex("4036")}));
+    }
+    void tvPowerPutsTheScreenToSleepAndWakesIt() {
+        Controller controller;
+        controller.start(TEST_FIXTURE);
+        controller.tvStandby();
+        QVERIFY(!controller.tvAsleep()); // without CEC the screen cannot know the TV's power
+        controller.setCec(true);
+        QSignalSpy pause(&controller, &Controller::pauseMedia), turnOn(&controller, &Controller::oneTouchPlay),
+            turnOff(&controller, &Controller::standbyTv), restart(&controller, &Controller::restartAudio);
+        const QList<QVariant> playing{false, false}, paused{true, false};
+        controller.press("play"); // Play on the TV remote starts the background music
+        QCOMPARE(pause.last(), playing);
+        controller.press("down");
+        QCOMPARE(controller.selected(), 2);
+        controller.tvStandby();
+        QVERIFY(controller.tvAsleep());
+        QCOMPARE(controller.page(), "home");
+        QCOMPARE(controller.selected(), 0);
+        QCOMPARE(pause.last(), paused);
+        // A button while the TV is off turns it on, and does nothing else.
+        controller.press("down");
+        QCOMPARE(turnOn.count(), 1);
+        QVERIFY(!controller.tvAsleep());
+        QCOMPARE(controller.selected(), 0);
+        QCOMPARE(pause.last(), paused);
+        // A button from the TV remote means the TV is up: the sound restarts,
+        // then the music plays again.
+        controller.tvStandby();
+        controller.tvOn(false);
+        QVERIFY(restart.wait(3000));
+        QCOMPARE(pause.last(), paused);
+        QTRY_COMPARE_WITH_TIMEOUT(pause.last(), playing, 6000);
+        // The phone remote's power button turns the TV off and on.
+        controller.press("power");
+        QCOMPARE(turnOff.count(), 1);
+        QVERIFY(controller.tvAsleep());
+        controller.press("power");
+        QCOMPARE(turnOn.count(), 2);
+        QVERIFY(!controller.tvAsleep());
     }
 };
 QTEST_MAIN(CoreTests)

@@ -68,6 +68,9 @@ public:
     bool backgroundPlaying() const { return backgroundPlaying_; }
     double volume() const { return volume_; }
     bool colourCheck() const { return colourCheck_; }
+    bool tvAsleep() const { return tvAsleep_; }
+    // HDMI-CEC reaches the TV, so the screen follows its power and can turn it on.
+    void setCec(bool available) { cec_ = available; }
     void start(const QString &fixture = {});
     Q_INVOKABLE void action(const QString &key, int columns = 1);
     Q_INVOKABLE void selectIndex(int index);
@@ -87,6 +90,11 @@ public:
 public slots:
     void mediaState(bool video, bool playing, double position, double duration, const QString &error);
     void mediaEnded(bool video);
+    // A remote button, from the phone or the TV's remote over CEC.
+    void press(const QString &key);
+    // Like a TV box, the screen sleeps while the TV is off and wakes when it comes on.
+    void tvStandby();
+    void tvOn(bool started);
 signals:
     void libraryChanged();
     void viewChanged();
@@ -105,6 +113,12 @@ signals:
     // A key reached the player; the overlay shows its controls again.
     void playerActivity();
     void colourCheckChanged();
+    void tvChanged();
+    // Turn the TV on and switch it to us (CEC One Touch Play), or turn it off.
+    void oneTouchPlay();
+    void standbyTv();
+    // Restart the HDMI sound output, so a TV that just came on gets a fresh stream.
+    void restartAudio();
 private:
     struct View { QString page = "home", heading, type, section, category, playlist; QVariantMap item; int selected = 0; };
     struct Preparation { QString source, error, loaded; QJsonObject asset; int generation = 0; bool pending = false; };
@@ -118,7 +132,7 @@ private:
     Preparation foreground_, background_;
     QPointer<QNetworkReply> stream_;
     SseParser parser_;
-    QTimer reconnect_, heartbeat_, poll_, refresh_, watchdog_, colourCheckTimeout_;
+    QTimer reconnect_, heartbeat_, poll_, refresh_, watchdog_, colourCheckTimeout_, audioRestart_;
     QString cachePath_, notice_, backgroundTitle_, backgroundSource_;
     QThread cacheThread_;
     QObject *cacheWriter_ = nullptr;
@@ -131,6 +145,10 @@ private:
     int chromeIndex_ = 0;
     bool scrollAtStart_ = true, scrollAtEnd_ = false;
     bool colourCheck_ = false;
+    // tvAsleep_: the TV is off. holdAudio_: background music waits for the sound restart.
+    bool cec_ = false, tvAsleep_ = false, holdAudio_ = false;
+    bool backgroundAudible() const { return backgroundDesired_ && view_.page != "player" && !tvAsleep_ && !holdAudio_; }
+    void wakeTv();
     QStringList chromeControls(const QString &zone) const;
     void enterChrome(const QString &zone);
     double position_ = 0, duration_ = 0, volume_ = .05;

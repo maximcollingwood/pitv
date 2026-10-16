@@ -78,7 +78,8 @@ export function createApp(options: AppOptions = {}) {
   };
   let volume = Number(settings.volume ?? "0.05");
   if (!Number.isFinite(volume) || volume < 0 || volume > 1) volume = 0.05;
-  let deviceStatus = { page: "home", title: "", playing: false, position: 0, duration: 0, error: "", updatedAt: 0 };
+  // tv: the TV's power as the screen follows it over HDMI-CEC; null without CEC.
+  let deviceStatus = { page: "home", title: "", playing: false, position: 0, duration: 0, error: "", tv: null as "on" | "standby" | null, updatedAt: 0 };
   const status = () => ({ ...deviceStatus, connected: deviceStatus.updatedAt > 0 && Date.now() - deviceStatus.updatedAt < 15000 });
   const tokens = new Map<string, number>();
   function issueToken() {
@@ -134,16 +135,17 @@ export function createApp(options: AppOptions = {}) {
     const seconds = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
     const previous = status();
     deviceStatus = { page: String(body.page ?? "home").slice(0, 100), title: String(body.title ?? "").slice(0, 500), playing: body.playing === true,
-      position: seconds(body.position), duration: seconds(body.duration), error: String(body.error ?? "").slice(0, 1000), updatedAt: Date.now() };
+      position: seconds(body.position), duration: seconds(body.duration), error: String(body.error ?? "").slice(0, 1000),
+      tv: body.tv === "on" || body.tv === "standby" ? body.tv : null, updatedAt: Date.now() };
     // Phones follow what the screen shows (the remote's hints change in the player).
     // Position alone changes every heartbeat, so it does not trigger an event.
     const current = status();
-    if (!previous.connected || (["page", "title", "playing", "error"] as const).some(key => previous[key] !== current[key])) deviceEvents.publish({ type: "status", ...current });
+    if (!previous.connected || (["page", "title", "playing", "error", "tv"] as const).some(key => previous[key] !== current[key])) deviceEvents.publish({ type: "status", ...current });
     return current;
   });
   app.post<{ Body: { action?: string } }>("/api/remote/press", async (req, reply) => {
     const action = req.body?.action;
-    if (!action || !["up", "down", "left", "right", "select", "back", "home"].includes(action)) return reply.code(400).send({ error: "bad action" });
+    if (!action || !["up", "down", "left", "right", "select", "back", "home", "power"].includes(action)) return reply.code(400).send({ error: "bad action" });
     remoteEvents.publish({ action }); deviceEvents.publish({ type: "remote", action }); return { ok: true, clients: remoteEvents.size + deviceEvents.size };
   });
   app.get("/api/system/volume", async () => ({ level: volume }));

@@ -129,13 +129,14 @@ void MediaEngine::fail(Channel &ch, bool video, const QString &error) {
 // A playback failure such as a hardware decoder stall can glitch the HDMI
 // output, and some TVs then drop the audio and stay silent although the Pi
 // keeps sending it. Restarting the HDMI audio output makes them pick it up
-// again. At most once a minute; the script exists only on provisioned systems.
-bool MediaEngine::resetAudio() {
+// again. After a failure at most once a minute; the script exists only on
+// provisioned systems.
+bool MediaEngine::resetAudio(bool tvOn) {
     const QString script = QStringLiteral("/usr/local/bin/kiosk-audio-reset.sh");
     const auto now = QDateTime::currentMSecsSinceEpoch();
-    if (now - lastAudioReset_ < 60000 || !QFileInfo(script).isExecutable()) return false;
+    if ((!tvOn && now - lastAudioReset_ < 60000) || !QFileInfo(script).isExecutable()) return false;
     lastAudioReset_ = now;
-    qWarning().noquote() << "Restarting HDMI audio after a playback failure";
+    qWarning().noquote() << (tvOn ? "Restarting HDMI audio for the TV that came on" : "Restarting HDMI audio after a playback failure");
     return QProcess::startDetached(script, {});
 }
 void MediaEngine::drain(Channel &ch, bool video) {

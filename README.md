@@ -23,7 +23,28 @@ and playing cached media do not depend on an internet connection. New imports do
 All five section types remain: articles, song lyrics, YouTube videos/playlists,
 book catalog and book FAQs. Background tracks remain independent of sections.
 Foreground video pauses background music; lyrics keep it playing. Arrow keys,
-Enter, Escape/Backspace and the phone remote operate the TV.
+Enter, Escape/Backspace, the phone remote and the TV's own remote operate the TV.
+
+### The TV (HDMI-CEC)
+
+Like a TV box, the screen joins the TV's HDMI-CEC bus as a playback device named
+PiTV (`/dev/cec0`, HDMI0; `PITV_CEC_DEVICE` overrides it):
+
+- The TV remote's arrows, OK, Back and media keys reach PiTV while the TV shows
+  it, and not while the TV's own menu is open. No IR receiver is needed.
+- When the TV goes to standby the screen sleeps: it returns to the home screen and
+  pauses background music. When the TV comes back on (it announces itself) the
+  screen restarts the HDMI sound output once the TV's input is up, then resumes the
+  music. Some TVs, the library's Vizio among them, otherwise stay silent after they
+  come on.
+- Any button pressed while the TV is off turns it on and switches it to PiTV (One
+  Touch Play). The phone remote shows whether the TV is on and has a power button.
+- Volume stays with the TV's remote; the Vizio refuses volume commands over CEC.
+
+Without a CEC adapter (the development VM) none of this applies. In the VM,
+`sudo modprobe vivid n_devs=1 num_inputs=1 input_types=3 num_outputs=1 output_types=1`
+emulates a TV on `/dev/cec0` and a source on `/dev/cec1` for testing with
+`cec-ctl` (v4l-utils).
 
 The integration API is documented in [docs/native-contract.md](docs/native-contract.md).
 
@@ -212,7 +233,8 @@ Before putting a rewritten installation into service, verify:
 - Boot with internet disconnected; browse cached content and play prepared media.
 - Navigate long lists and lyrics; measure frame timing and remote input latency.
 - Play representative 1080p H.264 clips and confirm the actual decoder in GStreamer logs.
-- Turn the TV off/on and switch HDMI inputs during playback; confirm sound recovers.
+- Turn the TV off/on and switch HDMI inputs during playback; confirm sound recovers
+  (`journalctl -b | grep -E "CEC|HDMI audio"` shows the screen following the TV).
 - Interrupt an import, restart the backend, and confirm the queue recovers.
 - Edit content from a phone and confirm the native screen updates without restarting.
 

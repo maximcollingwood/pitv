@@ -19,6 +19,8 @@ public slots:
     void toggleVideo();
     void seek(double seconds);
     void setVolume(double level);
+    // The TV came back on: restart the HDMI sound output for it.
+    void restartAudio() { resetAudio(true); }
     void shutdown();
 signals:
     void status(bool video, bool playing, double position, double duration, const QString &error);
@@ -44,6 +46,6 @@ private:
     void publish(const Channel &channel, bool video);
     void fail(Channel &channel, bool video, const QString &error);
     void drain(Channel &channel, bool video);
-    bool resetAudio();
+    bool resetAudio(bool tvOn = false);
     void destroy(Channel &channel);
 };

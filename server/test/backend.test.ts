@@ -112,6 +112,8 @@ test("native API, paste-only imports, admin compatibility, validated sources, an
     assert.equal((await app.inject({ method: "POST", url: "/api/device/status", remoteAddress: "192.168.1.23", payload: { title: "spoof" } })).statusCode, 403);
     assert.equal((await app.inject({ method: "POST", url: "/api/device/status", payload: { page: "player", title: "Local", playing: true } })).json().connected, true);
     assert.equal((await app.inject("/api/device/status")).json().title, "Local");
+    assert.equal((await app.inject("/api/device/status")).json().tv, null, "a screen without CEC does not know the TV's power");
+    assert.equal((await app.inject({ method: "POST", url: "/api/remote/press", payload: { action: "reboot" } })).statusCode, 400);
     assert.equal((await app.inject({ method: "POST", url: "/api/system/volume", payload: { level: null } })).statusCode, 400);
     assert.equal((await app.inject({ method: "POST", url: "/api/system/volume", payload: { level: 0.23 } })).json().level, 0.23);
   } finally { await app.close(); }
@@ -332,6 +334,10 @@ test("live device stream delivers navigation, settings, background, volume, and 
     await app.inject({ method: "POST", url: "/api/device/status", payload: { page: "player", title: "A talk", playing: true, position: 6 } });
     await app.inject({ method: "POST", url: "/api/device/status", payload: { page: "player", title: "A talk", playing: false, position: 6 } });
     assert.equal((await next("status")).playing, false, "a heartbeat with only a new position is not an event");
+    await app.inject({ method: "POST", url: "/api/device/status", payload: { page: "home", title: "", tv: "standby" } });
+    assert.equal((await next("status")).tv, "standby");
+    await app.inject({ method: "POST", url: "/api/remote/press", payload: { action: "power" } });
+    assert.equal((await next("remote")).action, "power");
     const login = await app.inject({ method: "POST", url: "/api/admin/login", payload: { pin: "1234" } });
     const headers = { authorization: `Bearer ${login.json().token}` };
     await app.inject({ method: "POST", url: "/api/admin/system/colour-check", headers, payload: { show: true } });
