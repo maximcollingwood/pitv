@@ -219,8 +219,8 @@ private slots:
         controller.toggleBackground();
         QCOMPARE(load.count(), 1);
         QCOMPARE(load.first().at(1).toBool(), false);
-        QVERIFY(load.first().at(0).toString().endsWith("/api/media/audio-fixture/file"));
-        controller.mediaState(false, true, 0, 20, {});
+        QVERIFY(load.first().at(0).toMap().value("url").toString().endsWith("/api/media/audio-fixture/file"));
+        controller.mediaState(false, true, false, 0, 20, {});
         QVERIFY(controller.backgroundPlaying());
         controller.mediaEnded(false);
         QCOMPARE(load.count(), 2);
@@ -248,17 +248,76 @@ private slots:
         controller.action("up"); QCOMPARE(controller.volume(), .20);
         controller.action("down"); QCOMPARE(controller.volume(), .15);
         QCOMPARE(activity.count(), 5);
-        controller.mediaState(true, true, 12, 60, {});
+        controller.mediaState(true, true, false, 12, 60, {});
         QVERIFY(controller.playing());
-        controller.mediaState(true, false, 12, 60, "Device disconnected");
-        QCOMPARE(controller.mediaError(), "Device disconnected");
-        controller.retry();
-        QVERIFY(controller.mediaError().isEmpty());
         controller.home();
-        controller.mediaState(true, false, 12, 60, "Old player failure");
+        controller.mediaState(true, false, false, 12, 60, "Old player failure");
         QVERIFY(!controller.playing());
         QVERIFY(controller.mediaError().isEmpty());
         QCOMPARE(controller.position(), 0.);
+    }
+    void videosStreamAndReopenWhereTheyStopped() {
+        // The fixture says where the first video streams from, as the server would.
+        QFile source(TEST_FIXTURE);
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        auto library = QJsonDocument::fromJson(source.readAll()).object();
+        library.insert("_streams", QJsonObject{{"https://www.youtube.com/watch?v=abcdefghijk",
+            QJsonObject{{"video", "/api/stream/abcdefghijk/video"}, {"audio", "/api/stream/abcdefghijk/audio"}}}});
+        QTemporaryFile fixture;
+        QVERIFY(fixture.open());
+        fixture.write(QJsonDocument(library).toJson());
+        fixture.close();
+        Controller controller;
+        controller.start(fixture.fileName());
+        QSignalSpy load(&controller, &Controller::loadMedia), stop(&controller, &Controller::stopMedia);
+        controller.openIndex(2); controller.openIndex(0); controller.openIndex(0);
+        QCOMPARE(load.count(), 1);
+        auto opened = load.takeFirst();
+        QVERIFY(opened.at(1).toBool());
+        QVERIFY(opened.at(0).toMap().value("url").toString().endsWith("/api/stream/abcdefghijk/video"));
+        QVERIFY(opened.at(0).toMap().value("audio").toString().endsWith("/api/stream/abcdefghijk/audio"));
+        QCOMPARE(opened.at(0).toMap().value("start").toDouble(), 0.);
+        QCOMPARE(controller.mediaStatus(), "loading");
+        controller.mediaState(true, true, false, 42, 600, {});
+        QCOMPARE(controller.mediaStatus(), "ready");
+        controller.mediaState(true, false, true, 43, 600, {});
+        QCOMPARE(controller.mediaNote(), "Buffering…");
+        // A stream that fails is opened again where it stopped, three times.
+        for (int attempt = 1; attempt <= 3; ++attempt) {
+            controller.mediaState(true, false, false, 42, 600, "The video stream stopped.");
+            QVERIFY(controller.mediaError().isEmpty());
+            QCOMPARE(controller.mediaNote(), "Reconnecting…");
+            QCOMPARE(controller.mediaStatus(), "ready");
+            QTRY_COMPARE_WITH_TIMEOUT(load.count(), 1, 3000);
+            QCOMPARE(load.takeFirst().at(0).toMap().value("start").toDouble(), 42.);
+        }
+        // Then the screen asks for help; Select tries again.
+        controller.mediaState(true, false, false, 42, 600, "The video stream stopped.");
+        QCOMPARE(controller.mediaError(), "The video stream stopped.");
+        QCOMPARE(controller.mediaStatus(), "error");
+        QVERIFY(stop.count() > 0);
+        controller.action("select");
+        QVERIFY(controller.mediaError().isEmpty());
+        QCOMPARE(load.count(), 1);
+        QCOMPARE(load.takeFirst().at(0).toMap().value("start").toDouble(), 42.);
+        // Playing well again for a while forgives earlier failures.
+        for (int attempt = 1; attempt <= 2; ++attempt) {
+            controller.mediaState(true, false, false, 42, 600, "The video stream stopped.");
+            QTRY_COMPARE_WITH_TIMEOUT(load.count(), 1, 3000); load.clear();
+        }
+        controller.mediaState(true, true, false, 80, 600, {});
+        QCOMPARE(controller.mediaNote(), "");
+        for (int attempt = 1; attempt <= 2; ++attempt) {
+            controller.mediaState(true, false, false, 80, 600, "The video stream stopped.");
+            QVERIFY(controller.mediaError().isEmpty());
+            QTRY_COMPARE_WITH_TIMEOUT(load.count(), 1, 3000);
+            QCOMPARE(load.takeFirst().at(0).toMap().value("start").toDouble(), 80.);
+        }
+        // Back stops the video and forgets it; nothing reopens later.
+        controller.mediaState(true, false, false, 80, 600, "The video stream stopped.");
+        controller.back();
+        QTest::qWait(2000);
+        QCOMPARE(load.count(), 0);
     }
     void cecFollowsTheTvAndAnswersIt() {
         Cec cec;

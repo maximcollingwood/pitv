@@ -10,6 +10,7 @@
 #include <QStandardPaths>
 #include <QUrlQuery>
 #include <algorithm>
+#include <cmath>
 
 Controller::Controller(QObject *parent) : QObject(parent) {
     base_ = QUrl(qEnvironmentVariable("PITV_API_URL", "http://127.0.0.1:3000"));
@@ -20,7 +21,7 @@ Controller::Controller(QObject *parent) : QObject(parent) {
     connect(&heartbeat_, &QTimer::timeout, this, &Controller::publishStatus);
     poll_.setInterval(2500);
     connect(&poll_, &QTimer::timeout, this, [this] {
-        pollAsset(true); pollAsset(false);
+        pollBackground();
         if (view_.page == "playlist") {
             auto status = playlists_.value(view_.playlist).toObject().value("status").toString();
             if (status != "ready" && status != "error") fetchPlaylist();
@@ -40,6 +41,19 @@ Controller::Controller(QObject *parent) : QObject(parent) {
     connect(&audioRestart_, &QTimer::timeout, this, [this] {
         emit restartAudio();
         QTimer::singleShot(4000, this, [this] { if (!audioRestart_.isActive()) { holdAudio_ = false; syncBackground(); } });
+    });
+    // A video stuck buffering for this long is opened again.
+    stall_.setSingleShot(true); stall_.setInterval(25000);
+    connect(&stall_, &QTimer::timeout, this, [this] { if (view_.page == "player") streamFailed("The video stopped loading."); });
+    // So is one that says it plays but does not move (a stuck sound output or decoder).
+    frozen_.setSingleShot(true); frozen_.setInterval(15000);
+    connect(&frozen_, &QTimer::timeout, this, [this] { if (view_.page == "player" && playing_) streamFailed("The video stopped moving."); });
+    // The highlighted video is looked up ahead, so it starts at once when chosen.
+    warm_.setSingleShot(true); warm_.setInterval(700);
+    connect(&warm_, &QTimer::timeout, this, [this] {
+        if (fixture_ || warmUrl_.isEmpty()) return;
+        const QJsonObject body{{"url", warmUrl_}};
+        request("/api/stream/warm", &body, [](const QJsonObject &, const QString &) {});
     });
     // Cache commits fsync, which can stall for seconds while downloads flush to
     // the SD card, so they never run on the UI thread.
@@ -104,14 +118,15 @@ void Controller::start(const QString &fixture) {
     if (file.open(QIODevice::ReadOnly)) {
         auto object = QJsonDocument::fromJson(file.readAll()).object();
         cachedAssets_ = object.take("_assets").toObject(); playlists_ = object.take("_playlists").toObject();
+        fixtureStreams_ = fixture_ ? object.take("_streams").toObject() : QJsonObject{};
         applyLibrary(object);
     } else rebuild();
     if (fixture_) return;
     fetchLibrary(); connectEvents(); heartbeat_.start(); poll_.start(); refresh_.start();
 }
-void Controller::request(const QString &path, const QJsonObject *body, Response done) {
+void Controller::request(const QString &path, const QJsonObject *body, Response done, int timeout) {
     QNetworkRequest req(base_.resolved(QUrl(path)));
-    req.setTransferTimeout(12000);
+    req.setTransferTimeout(timeout);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setRawHeader("Accept", "application/json");
     QNetworkReply *reply;
@@ -205,23 +220,20 @@ void Controller::event(const QJsonObject &object) {
         showColourCheck(object.value("show").toBool(true));
     } else if (type == "media") {
         const auto value = object.value("asset").toObject();
-        for (bool video : {true, false}) {
-            auto &prep = video ? foreground_ : background_;
-            if (!prep.source.isEmpty() && value.value("key") == prep.asset.value("key")) asset(video, value);
-        }
+        if (!background_.source.isEmpty() && value.value("key") == background_.asset.value("key")) backgroundAsset(value);
     }
 }
 void Controller::navigate(View view, bool remember) {
     if (remember) history_.append(view_);
     if (view_.page == "player" && view.page != "player") {
-        ++foreground_.generation; foreground_.source.clear(); foreground_.loaded.clear(); foreground_.pending = false;
-        foreground_.error.clear(); foreground_.asset = {};
+        const int generation = video_.generation + 1;
+        video_ = Stream{}; video_.generation = generation; stall_.stop(); frozen_.stop(); movedAt_ = -1;
         emit stopMedia(true); playing_ = false; position_ = duration_ = 0;
         emit playbackChanged();
     }
     view_ = std::move(view); notice_.clear();
     zone_ = "content"; chromeIndex_ = 0; scrollAtStart_ = true; scrollAtEnd_ = false;
-    rebuild(); emit resetScroll(); emit selectionChanged(); syncBackground(); publishStatus();
+    rebuild(); emit resetScroll(); emit selectionChanged(); syncBackground(); publishStatus(); warmSelection();
 }
 void Controller::home() { history_.clear(); navigate(View{}, false); }
 void Controller::back() {
@@ -280,6 +292,13 @@ void Controller::selectIndex(int index) {
         if (previous != view_.selected) emit resetScroll();
     }
     emit selectionChanged();
+    if (previous != view_.selected) warmSelection();
+}
+void Controller::warmSelection() {
+    if (fixture_ || (view_.page != "category" && view_.page != "playlist") || view_.selected >= entries_.size()) return;
+    const auto url = entries_.at(view_.selected).toMap().value("youtube_url").toString();
+    if (url.isEmpty() || !QUrlQuery(QUrl(url)).queryItemValue("list").isEmpty()) return;
+    warmUrl_ = url; warm_.start();
 }
 void Controller::openIndex(int index) {
     if (index < 0 || index >= entries_.size()) return;
@@ -303,7 +322,7 @@ void Controller::openItem(const QVariantMap &item) {
         const auto url = item.value("youtube_url").toString();
         const auto list = QUrlQuery(QUrl(url)).queryItemValue("list");
         if (!list.isEmpty()) { next.page = "playlist"; next.playlist = list; next.selected = 0; navigate(next); fetchPlaylist(); }
-        else { next.page = "player"; navigate(next); prepare(true, url); }
+        else { next.page = "player"; navigate(next); playVideo(url); }
     } else {
         next.page = view_.type == "lyrics" ? "lyrics" : view_.type == "catalog" ? "book" : "reader";
         navigate(next);
@@ -327,7 +346,7 @@ void Controller::action(const QString &key, int columns) {
     if (key == "play" || key == "pause" || key == "playpause") {
         if (view_.page == "player") {
             emit playerActivity();
-            if (!foreground_.error.isEmpty()) { if (key != "pause") retry(); }
+            if (!video_.error.isEmpty()) { if (key != "pause") retry(); }
             else if (key == "playpause" || (key == "play") != playing_) emit toggleVideo();
         } else if (backgroundTrack_ >= 0 && (key == "playpause" || (key == "play") != backgroundDesired_)) toggleBackground();
         return;
@@ -340,7 +359,7 @@ void Controller::action(const QString &key, int columns) {
     }
     if (view_.page == "player") {
         emit playerActivity();
-        if (key == "select") { if (!foreground_.error.isEmpty()) retry(); else emit toggleVideo(); }
+        if (key == "select") { if (!video_.error.isEmpty()) retry(); else emit toggleVideo(); }
         else if (key == "left" || key == "right") emit seekVideo(key == "left" ? -10 : 10);
         else if (key == "up" || key == "down") stepVolume(key == "up" ? 1 : -1);
         return;
@@ -418,26 +437,87 @@ void Controller::fetchPlaylist(bool retry) {
             }
         });
 }
-void Controller::prepare(bool video, const QString &url, bool retry) {
-    auto &prep = video ? foreground_ : background_;
+void Controller::playVideo(const QString &url) {
+    const int generation = video_.generation;
+    video_ = Stream{}; video_.generation = generation; video_.source = url;
+    openStream(false);
+}
+// Ask the server where the video streams from, then hand that to the player.
+// fresh: look it up again at YouTube, after the stream failed.
+void Controller::openStream(bool fresh) {
+    const int generation = ++video_.generation;
+    // Reconnecting keeps the player's controls and last picture on the screen.
+    if (video_.status != "ready") video_.status = "resolving";
+    video_.error.clear();
+    emit playbackChanged();
+    if (fixture_) {
+        const auto stream = fixtureStreams_.value(video_.source).toObject();
+        if (!stream.isEmpty()) startStream(stream);
+        return;
+    }
+    // A lookup at YouTube takes a few seconds, more on a busy network.
+    request("/api/stream?url=" + QString::fromLatin1(QUrl::toPercentEncoding(video_.source)) + (fresh ? "&fresh=1" : ""), nullptr,
+        [this, generation](const QJsonObject &object, const QString &error) {
+            if (generation != video_.generation) return;
+            // Reconnecting, a failed lookup is one more failed attempt; for a new
+            // video it is the answer (YouTube says the video is unavailable).
+            if (!error.isEmpty() && video_.status == "ready") { streamFailed(error); return; }
+            if (!error.isEmpty()) { video_.status = "error"; video_.error = error; video_.note.clear(); emit playbackChanged(); publishStatus(); return; }
+            startStream(object);
+        }, 60000);
+}
+void Controller::startStream(const QJsonObject &stream) {
+    QVariantMap source{{"url", absoluteUrl(stream.value("video").toString())}, {"start", video_.resumeAt},
+        {"userAgent", stream.value("userAgent").toString()}};
+    const auto audio = stream.value("audio").toString();
+    if (!audio.isEmpty()) source.insert("audio", absoluteUrl(audio));
+    QStringList headers;
+    const auto fields = stream.value("headers").toObject();
+    for (auto it = fields.begin(); it != fields.end(); ++it) headers << it.key() + ": " + it.value().toString();
+    source.insert("headers", headers);
+    if (video_.status != "ready") video_.status = "loading";
+    emit playbackChanged();
+    emit loadMedia(source, true);
+}
+// A dropped connection, or a stream that stopped loading: the video is looked up
+// again and opened where it stopped, a few times before the screen asks for help.
+void Controller::streamFailed(const QString &error) {
+    stall_.stop(); frozen_.stop(); movedAt_ = -1;
+    if (video_.source.isEmpty() || video_.status == "error") return;
+    if (video_.failures < 3) {
+        ++video_.failures;
+        video_.resumeAt = position_;
+        video_.note = QStringLiteral("Reconnecting…");
+        emit playbackChanged();
+        const int generation = video_.generation;
+        QTimer::singleShot(500 * video_.failures, this, [this, generation] { if (generation == video_.generation && view_.page == "player") openStream(true); });
+        return;
+    }
+    // Reconnections still waiting to start are cancelled.
+    ++video_.generation;
+    video_.status = "error"; video_.error = error; video_.note.clear();
+    emit stopMedia(true);
+    emit playbackChanged(); publishStatus();
+}
+void Controller::prepareBackground(const QString &url, bool retry) {
+    auto &prep = background_;
     ++prep.generation; prep.source = url; prep.loaded.clear(); prep.error.clear(); prep.pending = true;
     prep.asset = QJsonObject{{"status", "queued"}, {"progress", 0}};
-    const auto cached = cachedAssets_.value((video ? "video:" : "audio:") + url).toObject();
-    if (!retry && cached.value("status") == "ready") asset(video, cached);
-    if (video) emit playbackChanged(); else emit backgroundChanged();
+    const auto cached = cachedAssets_.value("audio:" + url).toObject();
+    if (!retry && cached.value("status") == "ready") backgroundAsset(cached);
+    emit backgroundChanged();
     if (fixture_) { prep.pending = false; return; }
     const int generation = prep.generation;
-    const QJsonObject body{{"url", url}, {"kind", video ? "video" : "audio"}, {"retry", retry}};
-    request("/api/media/prepare", &body, [this, video, generation](const QJsonObject &object, const QString &error) {
-        auto &current = video ? foreground_ : background_;
-        if (generation != current.generation) return;
-        current.pending = false;
-        if (error.isEmpty()) asset(video, object);
-        else if (current.loaded.isEmpty()) { current.error = error + " Press Select to retry."; if (video) emit playbackChanged(); else emit backgroundChanged(); }
+    const QJsonObject body{{"url", url}, {"kind", "audio"}, {"retry", retry}};
+    request("/api/media/prepare", &body, [this, generation](const QJsonObject &object, const QString &error) {
+        if (generation != background_.generation) return;
+        background_.pending = false;
+        if (error.isEmpty()) backgroundAsset(object);
+        else if (background_.loaded.isEmpty()) { background_.error = error + " Press Select to retry."; emit backgroundChanged(); }
     });
 }
-void Controller::asset(bool video, const QJsonObject &object) {
-    auto &prep = video ? foreground_ : background_;
+void Controller::backgroundAsset(const QJsonObject &object) {
+    auto &prep = background_;
     prep.asset = object;
     const auto status = object.value("status").toString();
     prep.error = status == "error" ? object.value("error").toString("Media could not be prepared. Try again.") : QString();
@@ -446,26 +526,25 @@ void Controller::asset(bool video, const QJsonObject &object) {
         // A completed file is local to the appliance. WAN failures never interrupt it.
         if (!uri.isEmpty() && uri != prep.loaded) {
             prep.loaded = uri;
-            if (video || backgroundAudible()) emit loadMedia(uri, video);
+            if (backgroundAudible()) emit loadMedia(QVariantMap{{"url", uri}}, false);
             else prep.loaded.clear();
         }
-        cachedAssets_.insert((video ? "video:" : "audio:") + prep.source, object); saveCache();
+        cachedAssets_.insert("audio:" + prep.source, object); saveCache();
     }
-    if (video) emit playbackChanged(); else emit backgroundChanged();
+    emit backgroundChanged();
 }
-void Controller::pollAsset(bool video) {
-    auto &prep = video ? foreground_ : background_;
+void Controller::pollBackground() {
+    auto &prep = background_;
     auto state = prep.asset.value("status").toString();
     if (prep.pending || prep.source.isEmpty() || state == "ready" || state == "error") return;
     const auto key = prep.asset.value("key").toString();
-    if (key.isEmpty()) { if (prep.error.isEmpty()) prepare(video, prep.source); return; }
+    if (key.isEmpty()) { if (prep.error.isEmpty()) prepareBackground(prep.source); return; }
     prep.pending = true; int generation = prep.generation;
     request("/api/media/" + QString::fromLatin1(QUrl::toPercentEncoding(key)), nullptr,
-        [this, video, generation](const QJsonObject &object, const QString &error) {
-            auto &current = video ? foreground_ : background_;
-            if (current.generation != generation) return;
-            current.pending = false;
-            if (error.isEmpty()) asset(video, object);
+        [this, generation](const QJsonObject &object, const QString &error) {
+            if (background_.generation != generation) return;
+            background_.pending = false;
+            if (error.isEmpty()) backgroundAsset(object);
         });
 }
 void Controller::syncBackground() {
@@ -481,10 +560,10 @@ void Controller::syncBackground() {
     if (source != backgroundSource_) {
         backgroundSource_ = source; ++background_.generation; background_.pending = false; background_.source.clear(); background_.loaded.clear(); background_.error.clear(); background_.asset = {};
         emit stopMedia(false);
-        if (!source.isEmpty() && backgroundDesired_) prepare(false, source);
-    } else if (backgroundDesired_ && background_.source.isEmpty()) prepare(false, source);
+        if (!source.isEmpty() && backgroundDesired_) prepareBackground(source);
+    } else if (backgroundDesired_ && background_.source.isEmpty()) prepareBackground(source);
     const bool pause = !backgroundAudible();
-    if (!pause && background_.loaded.isEmpty() && background_.asset.value("status") == "ready") asset(false, background_.asset);
+    if (!pause && background_.loaded.isEmpty() && background_.asset.value("status") == "ready") backgroundAsset(background_.asset);
     emit pauseMedia(pause, false); emit backgroundChanged();
 }
 void Controller::sendBackground(int track, bool playing) {
@@ -495,7 +574,7 @@ void Controller::sendBackground(int track, bool playing) {
 }
 void Controller::toggleBackground() {
     if (backgroundTrack_ < 0) { openBackground(); return; }
-    if (!background_.error.isEmpty()) { prepare(false, backgroundSource_, true); sendBackground(backgroundTrack_, true); }
+    if (!background_.error.isEmpty()) { prepareBackground(backgroundSource_, true); sendBackground(backgroundTrack_, true); }
     else sendBackground(backgroundTrack_, !backgroundDesired_);
 }
 void Controller::openBackground() { View next; next.page = "background"; next.heading = "Background music"; navigate(next); }
@@ -531,20 +610,31 @@ void Controller::stepVolume(int direction) {
 }
 void Controller::retry() {
     if (view_.page == "playlist") { fetchPlaylist(true); return; }
-    if (view_.page == "player") { emit stopMedia(true); prepare(true, foreground_.source, true); }
+    if (view_.page == "player" && !video_.source.isEmpty()) {
+        video_.failures = 0; video_.resumeAt = position_; video_.note.clear();
+        emit stopMedia(true); openStream(true);
+    }
 }
-void Controller::mediaState(bool video, bool playing, double position, double duration, const QString &error) {
-    if (video) {
-        // A queued status from the worker can arrive after Back stopped playback.
-        if (view_.page != "player") return;
-        playing_ = playing; position_ = position; duration_ = duration;
-        if (!error.isEmpty()) foreground_.error = error;
-        else if (playing) foreground_.error.clear();
-        emit playbackChanged();
-    } else { backgroundPlaying_ = playing; if (!error.isEmpty()) background_.error = error; else if (playing) background_.error.clear(); emit backgroundChanged(); }
+void Controller::mediaState(bool video, bool playing, bool buffering, double position, double duration, const QString &error) {
+    if (!video) { backgroundPlaying_ = playing; if (!error.isEmpty()) background_.error = error; else if (playing) background_.error.clear(); emit backgroundChanged(); return; }
+    // A queued status from the player can arrive after Back stopped playback.
+    if (view_.page != "player") return;
+    // Phones show play and pause at once, not at the next heartbeat.
+    const bool changed = playing != playing_;
+    playing_ = playing; position_ = position; duration_ = duration;
+    if (changed) publishStatus();
+    if (!error.isEmpty()) { emit playbackChanged(); streamFailed(error); return; }
+    if (!playing) { frozen_.stop(); movedAt_ = -1; }
+    else if (std::abs(position - movedAt_) > .5) { movedAt_ = position; frozen_.start(); }
+    if (video_.status == "loading" && (playing || duration > 0)) video_.status = "ready";
+    // Playing well again for a while forgives earlier reconnections.
+    if (playing && position > video_.resumeAt + 30) video_.failures = 0;
+    if (buffering) { video_.note = video_.failures ? QStringLiteral("Reconnecting…") : QStringLiteral("Buffering…"); if (!stall_.isActive()) stall_.start(); }
+    else { stall_.stop(); if (playing) video_.note.clear(); }
+    emit playbackChanged();
 }
 void Controller::mediaEnded(bool video) {
-    if (!video && backgroundAudible() && !background_.loaded.isEmpty()) emit loadMedia(background_.loaded, false);
+    if (!video && backgroundAudible() && !background_.loaded.isEmpty()) emit loadMedia(QVariantMap{{"url", background_.loaded}}, false);
 }
 void Controller::showColourCheck(bool show) {
     if (show) colourCheckTimeout_.start(); else colourCheckTimeout_.stop();
@@ -576,7 +666,7 @@ void Controller::wakeTv() {
 }
 void Controller::publishStatus() {
     if (fixture_) return;
-    QJsonObject body{{"page", colourCheck_ ? QStringLiteral("colour-check") : view_.page}, {"title", colourCheck_ ? QStringLiteral("the colour check") : view_.heading}, {"playing", playing_}, {"position", position_}, {"duration", duration_}, {"error", foreground_.error},
+    QJsonObject body{{"page", colourCheck_ ? QStringLiteral("colour-check") : view_.page}, {"title", colourCheck_ ? QStringLiteral("the colour check") : view_.heading}, {"playing", playing_}, {"position", position_}, {"duration", duration_}, {"error", video_.error},
         {"tv", cec_ ? QJsonValue(tvAsleep_ ? "standby" : "on") : QJsonValue()}};
     request("/api/device/status", &body, [](const QJsonObject &, const QString &) {});
 }

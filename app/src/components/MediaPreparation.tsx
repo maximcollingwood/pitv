@@ -37,17 +37,17 @@ export function MediaPreparation({ onError }: { onError: (error: unknown) => voi
     finally { setRetrying(null); }
   }
   return <>
-    <p className="muted">New YouTube links are prepared automatically. Ready items can play without internet. This page updates as preparation progresses.</p>
+    <p className="muted">Background music is downloaded automatically, so it plays without internet. Videos stream from YouTube when played and are not listed here; playlists are, as the screen reads their videos. This page updates as work progresses.</p>
     {error && <p className="notice notice--error" role="alert">{error}<button className="text-link" onClick={() => setRevision((value) => value + 1)}>Try again</button></p>}
     {library && <div className="storage-meter panel"><div className="section-heading"><span>Media storage</span><span className="small muted">{size(library.cacheBytes)} of {size(library.cacheLimitBytes)}</span></div><progress aria-label="Media storage used" value={library.cacheBytes} max={library.cacheLimitBytes || 1} /></div>}
-    {!library && !error && <p role="status">Loading prepared media…</p>}
-    {library?.assets.length === 0 && library.playlists.length === 0 && <div className="empty-state"><h2>Your media will appear here</h2><p>Add a YouTube link to a video section or background audio to get started.</p></div>}
+    {!library && !error && <p role="status">Loading media status…</p>}
+    {library?.assets.length === 0 && library.playlists.length === 0 && <div className="empty-state"><h2>Your music and playlists will appear here</h2><p>Add a background track, or a YouTube playlist to a video section, to get started.</p></div>}
     <ul className="content-list">
       {library?.playlists.map((playlist) => <li className="content-row media-row" key={`playlist-${playlist.id}`}>
         <div className="row-heading"><span className={`tag tag--${playlist.status}`}>{playlist.status === "ready" ? "Playlist imported" : playlist.status === "downloading" ? "Reading playlist" : playlist.status === "error" ? "Needs attention" : "In queue"}</span><span className="small muted">playlist</span></div>
         <h2>{playlist.title || "YouTube playlist"}</h2>
         <p className="small muted source-url">{playlist.sourceUrl}</p>
-        {playlist.status === "ready" && <p className="small muted">{playlist.videoCount} {playlist.videoCount === 1 ? "video" : "videos"} found. Individual videos become ready offline as they are prepared.</p>}
+        {playlist.status === "ready" && <p className="small muted">{playlist.videoCount} {playlist.videoCount === 1 ? "video" : "videos"} found. Each streams from YouTube when played.</p>}
         {playlist.status === "downloading" && <progress aria-label={`Reading ${playlist.title || "playlist"}`} />}
         {playlist.error && <p className="notice notice--error">{playlist.error}</p>}
         {playlist.status === "error" && <button className="btn btn--small" disabled={retrying !== null} onClick={() => void retry(playlist.id, true)}>{retrying === playlist.id ? "Retrying…" : "Try again"}</button>}

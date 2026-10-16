@@ -4,16 +4,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Quick Network)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Quick Network OpenGL)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.22)
+pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv>=2.0)
 pkg_check_modules(QRENCODE REQUIRED IMPORTED_TARGET libqrencode)
 qt_add_executable(pitv-native
     src/main.cpp src/Cec.cpp src/Cec.h src/Controller.cpp src/Controller.h src/MediaEngine.cpp src/MediaEngine.h
+    src/MpvVideo.cpp src/MpvVideo.h
     src/SseParser.cpp src/SseParser.h src/LyricsLayout.cpp src/LyricsLayout.h
     src/Fonts.cpp src/Fonts.h src/QrProvider.h qml.qrc)
-target_link_libraries(pitv-native PRIVATE Qt6::Core Qt6::Gui Qt6::Quick Qt6::Network
-    PkgConfig::GSTREAMER PkgConfig::QRENCODE)
+target_link_libraries(pitv-native PRIVATE Qt6::Core Qt6::Gui Qt6::Quick Qt6::Network Qt6::OpenGL
+    PkgConfig::MPV PkgConfig::QRENCODE)
 target_compile_options(pitv-native PRIVATE -Wall -Wextra -Wpedantic)
 install(TARGETS pitv-native RUNTIME DESTINATION bin)
 include(CTest)

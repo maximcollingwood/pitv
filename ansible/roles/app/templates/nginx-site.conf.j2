@@ -17,6 +17,12 @@ server {
         proxy_set_header Host $host;
     }
 
+    # The TV app reads YouTube streams from the backend directly, on loopback;
+    # they are not for the network.
+    location ^~ /api/stream {
+        deny all;
+    }
+
     # API requests go to the Fastify backend.
     location /api/ {
         proxy_pass http://127.0.0.1:{{ backend_port }};

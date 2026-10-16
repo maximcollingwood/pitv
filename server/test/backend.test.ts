@@ -68,7 +68,14 @@ test("legacy ordering columns are added in place without replacing content", () 
 
 test("native API, paste-only imports, admin compatibility, validated sources, and ranged playback", async () => {
   const temp = temporary();
-  const { app, media } = createApp({ dbPath: join(temp.path, "library.db"), seed: false, logger: false, startWorker: false, adminPin: "1234", media: { runner: successfulRunner, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 } });
+  const streamRunner: ProcessRunner = async (_command, args) => {
+    assert.ok(args.includes("--dump-single-json"));
+    return JSON.stringify({ id: VIDEO, title: "Streamed title", duration: 12, requested_formats: [
+      { url: "https://media.example/video?expire=4102444800&clen=10", vcodec: "avc1.640028", acodec: "none", ext: "mp4", protocol: "https" },
+      { url: "https://media.example/audio?expire=4102444800&clen=10", vcodec: "none", acodec: "mp4a.40.2", ext: "m4a", protocol: "https" }] });
+  };
+  const { app, media } = createApp({ dbPath: join(temp.path, "library.db"), seed: false, logger: false, startWorker: false, adminPin: "1234",
+    media: { runner: successfulRunner, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 }, streams: { runner: streamRunner } });
   try {
     const login = await app.inject({ method: "POST", url: "/api/admin/login", payload: { pin: "1234" } });
     const headers = { authorization: `Bearer ${login.json().token}` };
@@ -78,30 +85,36 @@ test("native API, paste-only imports, admin compatibility, validated sources, an
     assert.equal(created.statusCode, 201);
     assert.equal(created.json().youtube_url, URL);
     assert.equal(created.json().title, "");
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "queued");
-    assert.equal((await app.inject(`/api/media/video-${VIDEO}/file`)).statusCode, 404);
-    await media.tick();
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
+    assert.equal(media.get(`video-${VIDEO}`), undefined, "a video streams when played; nothing is downloaded");
+    const stream = await app.inject(`/api/stream?url=${encodeURIComponent(created.json().youtube_url)}`);
+    assert.equal(stream.statusCode, 200);
+    assert.deepEqual(stream.json(), { id: VIDEO, title: "Streamed title", duration: 12, live: false, video: `/api/stream/${VIDEO}/video`, audio: `/api/stream/${VIDEO}/audio`, userAgent: null, headers: {} });
+    assert.equal((await app.inject({ url: `/api/stream?url=${encodeURIComponent(URL)}`, remoteAddress: "192.168.1.23" })).statusCode, 403, "only the local player opens streams");
+    assert.equal((await app.inject({ url: `/api/stream/${VIDEO}/video`, remoteAddress: "192.168.1.23" })).statusCode, 403);
+    assert.equal((await app.inject("/api/stream?url=https://example.com/video")).statusCode, 400);
     const library = (await app.inject("/api/library")).json();
-    assert.equal(library.items[String(section.id)][0].title, "Prepared title");
+    assert.equal(library.items[String(section.id)][0].title, "Streamed title", "the lookup fills in a missing title");
     assert.equal(library.config.sections[0].name, "Watch");
     assert.equal(typeof library.info.remoteUrl, "string");
     assert.equal(library.volume, 0.05);
-    const range = await app.inject({ url: `/api/media/video-${VIDEO}/file`, headers: { range: "bytes=2-5" } });
-    assert.equal(range.statusCode, 206); assert.equal(range.body, "2345");
-    assert.equal(range.headers["content-range"], "bytes 2-5/10");
-    assert.equal(range.headers["content-type"], "video/mp4");
-    assert.equal((await app.inject({ url: `/api/media/video-${VIDEO}/file`, headers: { range: "bytes=-3" } })).body, "789");
-    assert.equal((await app.inject({ url: `/api/media/video-${VIDEO}/file`, headers: { range: "bytes=99-" } })).statusCode, 416);
-    assert.equal((await app.inject({ method: "HEAD", url: `/api/media/video-${VIDEO}/file` })).headers["content-length"], "10");
-    assert.equal((await app.inject({ method: "POST", url: "/api/media/prepare", payload: { url: "http://127.0.0.1/private", kind: "video" } })).statusCode, 400);
+    assert.equal((await app.inject({ method: "POST", url: "/api/media/prepare", payload: { url: "http://127.0.0.1/private", kind: "audio" } })).statusCode, 400);
+    assert.match((await app.inject({ method: "POST", url: "/api/media/prepare", payload: { url: URL, kind: "video" } })).json().error, /stream from YouTube/);
     const sharedVideo = await app.inject({ method: "POST", url: `/api/admin/sections/${section.id}/items`, headers, payload: { youtube_url: "https://youtube.com/watch?v=dQw4w9WgXcQ&list=PLexample" } });
     assert.equal(sharedVideo.statusCode, 201); assert.equal(sharedVideo.json().is_playlist, 0);
-    assert.equal(sharedVideo.json().title, "Prepared title");
+    assert.equal(sharedVideo.json().title, "Streamed title", "a title already looked up is filled in at once");
     const playlist = await app.inject({ method: "POST", url: `/api/admin/sections/${section.id}/items`, headers, payload: { youtube_url: "https://youtube.com/playlist?list=PLexample" } });
     assert.equal(playlist.statusCode, 201); assert.equal(playlist.json().is_playlist, 1);
     const bg = await app.inject({ method: "POST", url: "/api/admin/background/tracks", headers, payload: { youtube_url: URL } });
     assert.equal(bg.statusCode, 201); assert.equal(media.get(`audio-${VIDEO}`)?.status, "queued");
+    assert.equal((await app.inject(`/api/media/audio-${VIDEO}/file`)).statusCode, 404);
+    while (media.get(`audio-${VIDEO}`)?.status !== "ready") await media.tick();
+    const range = await app.inject({ url: `/api/media/audio-${VIDEO}/file`, headers: { range: "bytes=2-5" } });
+    assert.equal(range.statusCode, 206); assert.equal(range.body, "2345");
+    assert.equal(range.headers["content-range"], "bytes 2-5/10");
+    assert.equal(range.headers["content-type"], "audio/mp4");
+    assert.equal((await app.inject({ url: `/api/media/audio-${VIDEO}/file`, headers: { range: "bytes=-3" } })).body, "789");
+    assert.equal((await app.inject({ url: `/api/media/audio-${VIDEO}/file`, headers: { range: "bytes=99-" } })).statusCode, 416);
+    assert.equal((await app.inject({ method: "HEAD", url: `/api/media/audio-${VIDEO}/file` })).headers["content-length"], "10");
     assert.equal((await app.inject({ method: "POST", url: "/api/admin/background/tracks", headers, payload: { youtube_url: "https://youtube.com/playlist?list=PLexample" } })).statusCode, 400);
     const background = await app.inject({ method: "POST", url: "/api/background/state", payload: { trackId: bg.json().id, playing: true } });
     assert.equal(background.json().playing, true);
@@ -135,26 +148,26 @@ test("single worker, shutdown recovery, restart cleanup, failures, retries and p
   };
   let media = new MediaManager(db, { cacheDir, runner: slow, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
   try {
-    media.prepare(URL, "video");
+    media.prepare(URL, "audio");
     const tick = media.tick();
     await media.tick();
     assert.equal(calls, 1);
-    assert.equal(media.file(`video-${VIDEO}`), undefined);
+    assert.equal(media.file(`audio-${VIDEO}`), undefined);
     await media.close(); await tick;
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "queued");
-    const partialDir = join(cacheDir, ".work", `video-${VIDEO}`);
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "queued");
+    const partialDir = join(cacheDir, ".work", `audio-${VIDEO}`);
     mkdirSync(partialDir, { recursive: true }); writeFileSync(join(partialDir, "abandoned.part"), "abandoned");
     db.prepare("UPDATE media_assets SET status='downloading'").run();
     media = new MediaManager(db, { cacheDir, runner: async () => { throw new Error("YouTube is unavailable"); }, maxAttempts: 1, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
     assert.equal(existsSync(partialDir), false);
     await media.tick();
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "error");
-    assert.match(media.get(`video-${VIDEO}`)?.error ?? "", /unavailable/);
-    assert.equal(media.get(`video-${VIDEO}`)?.playbackUrl, null);
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "error");
+    assert.match(media.get(`audio-${VIDEO}`)?.error ?? "", /unavailable/);
+    assert.equal(media.get(`audio-${VIDEO}`)?.playbackUrl, null);
     await media.close();
     media = new MediaManager(db, { cacheDir, runner: successfulRunner, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
-    assert.equal(media.prepare(URL, "video", true).status, "queued");
-    await media.tick(); assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
+    assert.equal(media.prepare(URL, "audio", true).status, "queued");
+    await media.tick(); assert.equal(media.get(`audio-${VIDEO}`)?.status, "ready");
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
 
@@ -162,7 +175,7 @@ test("playlist discovery caches ordered entries and fills optional titles withou
   const temp = temporary();
   const db = openDatabase(join(temp.path, "library.db"), false);
   let calls = 0;
-  const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner: async (...args) => { calls++; return successfulRunner(...args); }, playlistPrefetch: 1, queueLimit: 2 });
+  const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner: async (...args) => { calls++; return successfulRunner(...args); }, queueLimit: 2 });
   try {
     db.prepare("INSERT INTO media_items(section_id,title,youtube_url,is_playlist) VALUES(1,'','https://www.youtube.com/playlist?list=PLexample',1)").run();
     assert.equal(media.playlist("PLexample").status, "queued");
@@ -172,10 +185,10 @@ test("playlist discovery caches ordered entries and fills optional titles withou
     assert.deepEqual(cached.videos.map(v => v.id), [VIDEO, VIDEO2]);
     assert.equal(calls, 1);
     assert.equal((db.prepare("SELECT title FROM media_items").get() as { title: string }).title, "Prepared playlist");
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "queued");
-    assert.equal(media.get(`video-${VIDEO2}`), undefined);
+    assert.equal(media.list().assets.length, 0, "a playlist's videos stream when played");
     assert.equal(media.playlist("PLexample", true).status, "queued");
-    assert.throws(() => media.prepare(`https://youtu.be/${VIDEO2}`, "video"), /queue is full/);
+    media.prepare(URL, "audio");
+    assert.throws(() => media.prepare(`https://youtu.be/${VIDEO2}`, "audio"), /queue is full/);
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
 
@@ -217,8 +230,8 @@ test("extractor discovers system ffmpeg unless a custom filesystem path is confi
     await media.close();
     expectedPath = join(temp.path, "custom-tools", "ffmpeg");
     media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner, ffmpegPath: expectedPath, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
-    media.prepare(URL, "video"); await media.tick();
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
+    media.prepare(`https://youtu.be/${VIDEO2}`, "audio"); await media.tick();
+    assert.equal(media.get(`audio-${VIDEO2}`)?.status, "ready");
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
 
@@ -234,10 +247,10 @@ test("timeout retries are bounded and oversized downloads never become playable"
     await media.tick(); assert.equal(media.get(`audio-${VIDEO}`)?.status, "error");
     await media.close();
     media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner: successfulRunner, maxAttempts: 1, maxAssetBytes: 5, cacheLimitBytes: 1000, minFreeBytes: 0 });
-    media.prepare(URL, "video"); await media.tick();
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "error");
-    assert.match(media.get(`video-${VIDEO}`)?.error ?? "", /size limit/);
-    assert.equal(media.file(`video-${VIDEO}`), undefined);
+    media.prepare(`https://youtu.be/${VIDEO2}`, "audio"); await media.tick();
+    assert.equal(media.get(`audio-${VIDEO2}`)?.status, "error");
+    assert.match(media.get(`audio-${VIDEO2}`)?.error ?? "", /size limit/);
+    assert.equal(media.file(`audio-${VIDEO2}`), undefined);
     assert.equal(media.list().cacheBytes, 0);
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
@@ -258,22 +271,22 @@ test("passive library refresh allows cache eviction while active playback leases
   const db = openDatabase(join(temp.path, "library.db"), false);
   const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner: successfulRunner, maxAttempts: 1, maxAssetBytes: 100, cacheLimitBytes: 300, minFreeBytes: 0 });
   try {
-    db.prepare("INSERT INTO media_items(section_id,title,youtube_url) VALUES(1,'Keep my title',?)").run(URL);
-    media.prepare(URL, "video"); await media.tick();
-    assert.equal((db.prepare("SELECT title FROM media_items").get() as { title: string }).title, "Keep my title");
+    db.prepare("INSERT INTO background_tracks(title,youtube_url) VALUES('Keep my title',?)").run(URL);
+    media.prepare(URL, "audio"); await media.tick();
+    assert.equal((db.prepare("SELECT title FROM background_tracks").get() as { title: string }).title, "Keep my title");
     db.prepare("UPDATE media_assets SET accessed_at=0").run();
     media.queueExisting();
     assert.equal((db.prepare("SELECT accessed_at FROM media_assets").get() as { accessed_at: number }).accessed_at, 0);
-    const release = media.lease(`video-${VIDEO}`);
-    media.prepare(`https://youtu.be/${VIDEO2}`, "video"); await media.tick();
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
-    assert.match(media.get(`video-${VIDEO2}`)?.error ?? "", /cache is full/);
+    const release = media.lease(`audio-${VIDEO}`);
+    media.prepare(`https://youtu.be/${VIDEO2}`, "audio"); await media.tick();
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "ready");
+    assert.match(media.get(`audio-${VIDEO2}`)?.error ?? "", /cache is full/);
     release();
-    media.retry(`video-${VIDEO2}`); await media.tick();
-    assert.equal(media.get(`video-${VIDEO2}`)?.status, "ready");
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "error");
+    media.retry(`audio-${VIDEO2}`); await media.tick();
+    assert.equal(media.get(`audio-${VIDEO2}`)?.status, "ready");
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "error");
     media.queueExisting();
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "error");
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "error");
     assert.equal(media.list().cacheBytes, 10);
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
@@ -281,22 +294,22 @@ test("passive library refresh allows cache eviction while active playback leases
 test("selected playback and playlist discovery run ahead of passive library prefetch", async () => {
   const temp = temporary();
   const db = openDatabase(join(temp.path, "library.db"), false);
-  const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner: successfulRunner, playlistPrefetch: 0, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
+  const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner: successfulRunner, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
   try {
-    media.queueSource(URL, "video");
-    media.queueSource(`https://youtu.be/${VIDEO2}`, "video");
+    media.queueSource(URL, "audio");
+    media.queueSource(`https://youtu.be/${VIDEO2}`, "audio");
     media.queueSource("https://youtube.com/playlist?list=PLexample", "video");
-    db.prepare("UPDATE media_assets SET created_at=1 WHERE key=?").run(`video-${VIDEO}`);
-    media.prepare(`https://youtu.be/${VIDEO2}`, "video");
+    db.prepare("UPDATE media_assets SET created_at=1 WHERE key=?").run(`audio-${VIDEO}`);
+    media.prepare(`https://youtu.be/${VIDEO2}`, "audio");
     await media.tick();
-    assert.equal(media.get(`video-${VIDEO2}`)?.status, "ready");
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "queued");
+    assert.equal(media.get(`audio-${VIDEO2}`)?.status, "ready");
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "queued");
     media.playlist("PLexample");
     await media.tick();
     assert.equal(media.playlist("PLexample").status, "ready");
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "queued");
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "queued");
     await media.tick();
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "ready");
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
 
@@ -371,30 +384,26 @@ test("removed or changed library links cancel pending imports while prepared fil
     const headers = { authorization: `Bearer ${(await app.inject({ method: "POST", url: "/api/admin/login", payload: { pin: "1234" } })).json().token}` };
     const section = (await app.inject({ method: "POST", url: "/api/admin/sections", headers, payload: { type: "media", name: "Watch" } })).json();
     const items = `/api/admin/sections/${section.id}/items`;
-    const add = async (youtube_url: string) => (await app.inject({ method: "POST", url: items, headers, payload: { youtube_url } })).json();
-    await add(URL);
-    const duplicate = await add(`https://youtu.be/${VIDEO}`);
-    const second = await add(`https://youtu.be/${VIDEO2}`);
-    await app.inject({ method: "DELETE", url: `${items}/${duplicate.id}`, headers });
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "queued", "a link another item still uses stays queued");
-    await app.inject({ method: "PUT", url: `${items}/${second.id}`, headers, payload: { youtube_url: URL } });
-    assert.equal(media.get(`video-${VIDEO2}`), undefined, "replacing a link cancels the old import");
+    const tracks = "/api/admin/background/tracks";
+    const add = async (url: string, youtube_url: string) => (await app.inject({ method: "POST", url, headers, payload: { youtube_url } })).json();
+    const first = await add(tracks, URL);
+    const duplicate = await add(tracks, `https://youtu.be/${VIDEO}`);
+    const second = await add(tracks, `https://youtu.be/${VIDEO2}`);
+    await app.inject({ method: "DELETE", url: `${tracks}/${duplicate.id}`, headers });
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "queued", "a link another track still uses stays queued");
+    await app.inject({ method: "PUT", url: `${tracks}/${second.id}`, headers, payload: { youtube_url: URL } });
+    assert.equal(media.get(`audio-${VIDEO2}`), undefined, "replacing a link cancels the old import");
     await media.tick();
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "ready");
+    for (const track of [first, second]) await app.inject({ method: "DELETE", url: `${tracks}/${track.id}`, headers });
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "ready", "prepared files remain cached until evicted");
 
-    const track = (await app.inject({ method: "POST", url: "/api/admin/background/tracks", headers, payload: { youtube_url: `https://youtu.be/${VIDEO2}` } })).json();
-    assert.equal(media.get(`audio-${VIDEO2}`)?.status, "queued");
-    await app.inject({ method: "DELETE", url: `/api/admin/background/tracks/${track.id}`, headers });
-    assert.equal(media.get(`audio-${VIDEO2}`), undefined);
-
-    await add("https://www.youtube.com/playlist?list=PLexample");
+    await add(items, `https://youtu.be/${VIDEO2}`);
+    await add(items, "https://www.youtube.com/playlist?list=PLexample");
     await media.tick();
-    assert.equal(media.get(`video-${VIDEO2}`)?.status, "queued", "playlist entries are referenced through their playlist");
-    media.queueExisting();
-    assert.equal(media.get(`video-${VIDEO2}`)?.status, "queued");
+    assert.equal(media.get(`video-${VIDEO2}`), undefined, "videos stream when played");
+    assert.equal(media.list().playlists[0].status, "ready");
     await app.inject({ method: "DELETE", url: `/api/admin/sections/${section.id}`, headers });
-    assert.equal(media.get(`video-${VIDEO2}`), undefined);
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready", "prepared files remain cached until evicted");
     assert.equal(media.list().playlists.length, 1);
   } finally { await app.close(); temp.cleanup(); }
 });
@@ -405,14 +414,15 @@ test("library reconciliation refills when the queue drains and rewrites only cha
   const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner: successfulRunner, queueLimit: 1, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
   const changes = () => (db.prepare("SELECT total_changes() AS n").get() as { n: number }).n;
   try {
-    db.prepare("INSERT INTO media_items(section_id,title,youtube_url) VALUES(1,'',?),(1,'',?)").run(`https://youtu.be/${VIDEO}?si=share`, `https://youtu.be/${VIDEO2}`);
-    db.prepare("INSERT INTO background_tracks(title,youtube_url) VALUES('',?)").run(`https://youtu.be/${VIDEO}?si=share`);
+    db.prepare("INSERT INTO media_items(section_id,title,youtube_url) VALUES(1,'',?)").run(`https://youtu.be/${VIDEO}?si=share`);
+    db.prepare("INSERT INTO background_tracks(title,youtube_url) VALUES('',?),('',?)").run(`https://youtu.be/${VIDEO}?si=share`, `https://youtu.be/${VIDEO2}`);
     media.queueExisting();
     assert.deepEqual((db.prepare("SELECT youtube_url FROM media_items UNION ALL SELECT youtube_url FROM background_tracks").all() as { youtube_url: string }[]).map(r => r.youtube_url),
-      [URL, `https://www.youtube.com/watch?v=${VIDEO2}`, URL]);
-    assert.equal(media.get(`video-${VIDEO2}`), undefined, "a full queue defers the rest of the library");
+      [URL, URL, `https://www.youtube.com/watch?v=${VIDEO2}`]);
+    assert.equal(media.get(`audio-${VIDEO2}`), undefined, "a full queue defers the rest of the library");
     for (let i = 0; i < 3; i++) await media.tick();
-    for (const key of [`video-${VIDEO}`, `video-${VIDEO2}`, `audio-${VIDEO}`]) assert.equal(media.get(key)?.status, "ready", key);
+    for (const key of [`audio-${VIDEO}`, `audio-${VIDEO2}`]) assert.equal(media.get(key)?.status, "ready", key);
+    assert.equal(media.get(`video-${VIDEO}`), undefined, "videos stream when played");
     const before = changes();
     media.queueExisting();
     assert.equal(changes(), before, "an unchanged library is reconciled without writes");
@@ -432,29 +442,32 @@ test("download progress is published live without per-second database writes", a
   const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0,
     onEvent: event => { const asset = (event as { asset?: { status: string; progress: number } }).asset; if (asset?.status === "downloading") published.push(asset.progress); } });
   try {
-    media.prepare(URL, "video"); await media.tick();
+    media.prepare(URL, "audio"); await media.tick();
     assert.ok(published.includes(50), "the extractor's progress reaches clients");
     assert.equal(stored, 0, "progress is not written to the database while downloading");
-    assert.equal(media.get(`video-${VIDEO}`)?.progress, 100);
+    assert.equal(media.get(`audio-${VIDEO}`)?.progress, 100);
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
 
-test("video imports pick the best H.264 quality that fits the per-file limit", async () => {
+test("videos are never downloaded, and copies from earlier versions are removed", async () => {
   const temp = temporary();
   const db = openDatabase(join(temp.path, "library.db"), false);
-  let format = "";
-  const runner: ProcessRunner = async (command, args, options) => {
-    if (args.includes("--format")) format = args[args.indexOf("--format") + 1];
-    if (args.includes(`https://www.youtube.com/watch?v=${VIDEO2}`)) throw new Error("ERROR: [youtube] aqz-KE-bpKQ: Requested format is not available. Use --list-formats for a list of available formats");
-    return successfulRunner(command, args, options);
-  };
-  const media = new MediaManager(db, { cacheDir: join(temp.path, "media"), runner, maxAttempts: 1, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
+  const cacheDir = join(temp.path, "media");
+  mkdirSync(cacheDir, { recursive: true });
+  writeFileSync(join(cacheDir, `video-${VIDEO}.mp4`), "old video");
+  writeFileSync(join(cacheDir, `audio-${VIDEO}.m4a`), "music");
+  const insert = db.prepare("INSERT INTO media_assets(key,source_url,kind,status,filename,bytes,created_at,updated_at,accessed_at) VALUES(?,?,?,'ready',?,?,1,1,1)");
+  insert.run(`video-${VIDEO}`, URL, "video", `video-${VIDEO}.mp4`, 9);
+  insert.run(`audio-${VIDEO}`, URL, "audio", `audio-${VIDEO}.m4a`, 5);
+  const media = new MediaManager(db, { cacheDir, runner: successfulRunner, maxAssetBytes: 100, cacheLimitBytes: 1000, minFreeBytes: 0 });
   try {
-    media.prepare(URL, "video"); await media.tick();
-    assert.equal(media.get(`video-${VIDEO}`)?.status, "ready");
-    assert.equal(format, "bv*[vcodec^=avc1][height<=1080][protocol^=http][filesize<?90][filesize_approx<?90]+ba[ext=m4a]/b[vcodec^=avc1][ext=mp4][height<=1080][protocol^=http][filesize<?90][filesize_approx<?90]/bv*[vcodec^=avc1][height<=480]+ba[ext=m4a]");
-    media.prepare(`https://youtu.be/${VIDEO2}`, "video"); await media.tick();
-    assert.match(media.get(`video-${VIDEO2}`)?.error ?? "", /fits the 0 MB per-file limit/);
+    assert.equal(existsSync(join(cacheDir, `video-${VIDEO}.mp4`)), false);
+    assert.equal(media.get(`video-${VIDEO}`), undefined);
+    assert.equal(media.get(`audio-${VIDEO}`)?.status, "ready", "background music stays on the device");
+    assert.equal(media.list().cacheBytes, 5);
+    assert.throws(() => media.prepare(URL, "video"), /stream from YouTube/);
+    assert.equal(media.queueSource(`https://youtu.be/${VIDEO2}`, "video"), null);
+    assert.equal(media.get(`video-${VIDEO2}`), undefined);
   } finally { await media.close(); db.close(); temp.cleanup(); }
 });
 

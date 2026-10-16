@@ -29,9 +29,11 @@ class Controller final : public QObject {
     // Guest Wi-Fi as a "WIFI:" QR payload phone cameras offer to join; empty when unset.
     Q_PROPERTY(QString wifiCode READ wifiCode NOTIFY libraryChanged)
     Q_PROPERTY(QString notice READ notice NOTIFY viewChanged)
+    // The video: "resolving" (looked up at YouTube), "loading", "ready" or "error".
     Q_PROPERTY(QString mediaStatus READ mediaStatus NOTIFY playbackChanged)
     Q_PROPERTY(QString mediaError READ mediaError NOTIFY playbackChanged)
-    Q_PROPERTY(double progress READ progress NOTIFY playbackChanged)
+    // Shown over a playing video: "Buffering…" or "Reconnecting…".
+    Q_PROPERTY(QString mediaNote READ mediaNote NOTIFY playbackChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playbackChanged)
     Q_PROPERTY(double position READ position NOTIFY playbackChanged)
     Q_PROPERTY(double duration READ duration NOTIFY playbackChanged)
@@ -59,9 +61,9 @@ public:
     QString remoteUrl() const;
     QString wifiCode() const;
     QString notice() const { return notice_; }
-    QString mediaStatus() const { return foreground_.asset.value("status").toString(); }
-    QString mediaError() const { return foreground_.error; }
-    double progress() const { return foreground_.asset.value("progress").toDouble(); }
+    QString mediaStatus() const { return video_.status; }
+    QString mediaError() const { return video_.error; }
+    QString mediaNote() const { return video_.note; }
     bool playing() const { return playing_; }
     double position() const { return position_; }
     double duration() const { return duration_; }
@@ -91,7 +93,7 @@ public:
     Q_INVOKABLE QString clockText(double seconds) const;
     Q_INVOKABLE void showColourCheck(bool show);
 public slots:
-    void mediaState(bool video, bool playing, double position, double duration, const QString &error);
+    void mediaState(bool video, bool playing, bool buffering, double position, double duration, const QString &error);
     void mediaEnded(bool video);
     // A remote button, from the phone or the TV's remote over CEC.
     void press(const QString &key);
@@ -107,7 +109,8 @@ signals:
     void backgroundChanged();
     void resetScroll();
     void scrollRequested(int direction);
-    void loadMedia(const QString &uri, bool video);
+    // source: "url", and "audio" when the sound streams separately; see MediaEngine::load.
+    void loadMedia(const QVariantMap &source, bool video);
     void stopMedia(bool video);
     void pauseMedia(bool paused, bool video);
     void toggleVideo();
@@ -124,19 +127,24 @@ signals:
     void restartAudio();
 private:
     struct View { QString page = "home", heading, type, section, category, playlist; QVariantMap item; int selected = 0; };
+    // Background music, downloaded to the device by the server.
     struct Preparation { QString source, error, loaded; QJsonObject asset; int generation = 0; bool pending = false; };
+    // The video, streamed from YouTube through the server. resumeAt: where a
+    // reopened stream starts. failures: reconnections since it last played well.
+    struct Stream { QString source, status, error, note; double resumeAt = 0; int generation = 0, failures = 0; };
     QNetworkAccessManager network_;
     QUrl base_;
-    QJsonObject library_, cachedAssets_, playlists_;
+    QJsonObject library_, cachedAssets_, playlists_, fixtureStreams_;
     QVariantList entries_;
     QVariantMap current_;
     View view_;
     QList<View> history_;
-    Preparation foreground_, background_;
+    Preparation background_;
+    Stream video_;
     QPointer<QNetworkReply> stream_;
     SseParser parser_;
-    QTimer reconnect_, heartbeat_, poll_, refresh_, watchdog_, colourCheckTimeout_, audioRestart_;
-    QString cachePath_, notice_, backgroundTitle_, backgroundSource_;
+    QTimer reconnect_, heartbeat_, poll_, refresh_, watchdog_, colourCheckTimeout_, audioRestart_, stall_, frozen_, warm_;
+    QString cachePath_, notice_, backgroundTitle_, backgroundSource_, warmUrl_;
     QThread cacheThread_;
     QObject *cacheWriter_ = nullptr;
     QByteArray cacheSaved_;
@@ -154,13 +162,13 @@ private:
     void wakeTv();
     QStringList chromeControls(const QString &zone) const;
     void enterChrome(const QString &zone);
-    double position_ = 0, duration_ = 0, volume_ = .05;
+    double position_ = 0, duration_ = 0, volume_ = .05, movedAt_ = -1;
     // The TV's own volume (a paired Vizio TV, through the server); level -1 while unknown.
     int tvLevel_ = -1;
     bool tvMuted_ = false;
     void stepVolume(int direction);
     using Response = std::function<void(const QJsonObject &, const QString &)>;
-    void request(const QString &path, const QJsonObject *body, Response done);
+    void request(const QString &path, const QJsonObject *body, Response done, int timeout = 12000);
     void fetchLibrary();
     void applyLibrary(const QJsonObject &library);
     void saveCache();
@@ -170,9 +178,14 @@ private:
     void rebuild();
     void openItem(const QVariantMap &item);
     void fetchPlaylist(bool retry = false);
-    void prepare(bool video, const QString &url, bool retry = false);
-    void asset(bool video, const QJsonObject &object);
-    void pollAsset(bool video);
+    void playVideo(const QString &url);
+    void openStream(bool fresh);
+    void startStream(const QJsonObject &stream);
+    void streamFailed(const QString &error);
+    void warmSelection();
+    void prepareBackground(const QString &url, bool retry = false);
+    void backgroundAsset(const QJsonObject &object);
+    void pollBackground();
     void syncBackground();
     void sendBackground(int track, bool playing);
     void setVolume(double level);

@@ -9,8 +9,77 @@
     argv: [python3, -m, venv, "{{ media_tools_root }}"]
     creates: "{{ media_tools_root }}/bin/python"
 
-- name: Install pinned YouTube importer with challenge runtime support
+# At least this release; the daily update below installs newer ones, and
+# re-provisioning never goes back to an older one.
+- name: Install YouTube extractor with challenge runtime support
   ansible.builtin.pip:
-    name: "yt-dlp[default]=={{ yt_dlp_version }}"
+    name: "yt-dlp[default]>={{ yt_dlp_version }}"
     executable: "{{ media_tools_root }}/bin/pip"
   notify: Restart backend
+
+# Videos stream through yt-dlp, and YouTube's changes regularly break older
+# releases, so the device installs each new release itself, once a day. A
+# release that does not even start is rolled back.
+- name: Install the yt-dlp update script
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/pitv-update-ytdlp
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Managed by Ansible. Install the newest yt-dlp; go back if it cannot start.
+      set -u
+      tools={{ media_tools_root }}
+      before=$("$tools/bin/yt-dlp" --version 2>/dev/null || true)
+      "$tools/bin/pip" install --quiet --disable-pip-version-check --upgrade "yt-dlp[default]" || exit 0
+      after=$("$tools/bin/yt-dlp" --version 2>/dev/null || true)
+      if [ -z "$after" ] && [ -n "$before" ]; then
+        echo "The new yt-dlp does not start; going back to $before"
+        "$tools/bin/pip" install --quiet --disable-pip-version-check "yt-dlp[default]==$before"
+      elif [ "$before" != "$after" ]; then
+        echo "yt-dlp updated from $before to $after"
+      fi
+
+- name: Install the yt-dlp update service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/pitv-update-ytdlp.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Update yt-dlp, which PiTV's videos stream through
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      Nice=10
+      ExecStart=/usr/local/sbin/pitv-update-ytdlp
+
+- name: Install the daily yt-dlp update timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/pitv-update-ytdlp.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Update yt-dlp daily
+
+      [Timer]
+      OnBootSec=10min
+      OnUnitActiveSec=1d
+      RandomizedDelaySec=1h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Enable the daily yt-dlp update
+  ansible.builtin.systemd:
+    name: pitv-update-ytdlp.timer
+    enabled: true
+    state: started
+    daemon_reload: true

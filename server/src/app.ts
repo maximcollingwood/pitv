@@ -9,12 +9,13 @@ import { MediaManager, type MediaOptions } from "./media.js";
 import { normalizeYouTube } from "./youtube.js";
 import { EventStream } from "./events.js";
 import { sendFile } from "./http-files.js";
+import { StreamError, StreamResolver, type StreamOptions } from "./streams.js";
 import { SYSTEM_ACTIONS, SystemControl, type SystemAction, type SystemOptions } from "./system.js";
 import { TvControl, TvError, type TvOptions, type TvVolume } from "./tv.js";
 
 export interface AppOptions {
   dbPath?: string; uploadsDir?: string; adminPin?: string; seed?: boolean;
-  logger?: boolean; startWorker?: boolean; media?: Partial<MediaOptions>; system?: Partial<SystemOptions>; tv?: Partial<TvOptions>;
+  logger?: boolean; startWorker?: boolean; media?: Partial<MediaOptions>; streams?: StreamOptions; system?: Partial<SystemOptions>; tv?: Partial<TvOptions>;
 }
 const SECTION_TYPES: Record<string, { table: string; columns: string[]; orderBy: string }> = {
   articles: { table: "articles", columns: ["title", "body", "position"], orderBy: "position, title" },
@@ -50,6 +51,21 @@ export function createApp(options: AppOptions = {}) {
     cacheDir: process.env.MEDIA_CACHE_DIR ?? resolve(dirname(dbPath), "media"), ...options.media,
     onEvent: event => { deviceEvents.publish(event); options.media?.onEvent?.(event); },
   });
+  // Background work: downloading background music and looking videos up ahead of play.
+  const backgroundWork = options.startWorker !== false && process.env.MEDIA_WORKER_DISABLED !== "1";
+  // Videos play straight from YouTube. A lookup also fills in a title the
+  // administrator left empty.
+  const fillTitle = (url: string, title: string) =>
+    db.prepare("UPDATE media_items SET title=? WHERE is_playlist=0 AND youtube_url=? AND (title='' OR title=youtube_url)").run(title, url).changes > 0;
+  const streams = new StreamResolver({
+    warn: message => app.log.warn(message),
+    ...options.streams,
+    onResolved: (url, title) => {
+      if (fillTitle(url, title)) invalidate();
+      options.streams?.onResolved?.(url, title);
+    },
+  });
+  const loopback = (ip: string) => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(ip);
   const getSection = (id: string | number) => db.prepare("SELECT * FROM sections WHERE id=?").get(id) as Section | undefined;
   const getSettings = (): Record<string, string> => Object.fromEntries((db.prepare("SELECT key,value FROM settings").all() as { key: string; value: string }[]).map(r => [r.key, r.value]));
   const settingsUpsert = db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
@@ -131,7 +147,14 @@ export function createApp(options: AppOptions = {}) {
     return source;
   }
   function queueSaved(url: string, kind: "audio" | "video") {
-    try { media.queueSource(url, kind); } catch (error) { app.log.warn({ error: String(error) }, "Media import deferred until queue space is available"); }
+    try {
+      // A video streams when played; looking it up now fills in a missing title
+      // and makes it start at once.
+      if (kind === "video" && !normalizeYouTube(url).playlistId) {
+        const title = streams.knownTitle(url);
+        if (title) fillTitle(url, title); else if (backgroundWork) streams.warm(url);
+      } else media.queueSource(url, kind);
+    } catch (error) { app.log.warn({ error: String(error) }, "Media import deferred until queue space is available"); }
   }
 
   app.get("/api/health", async () => ({ status: "ok", player: "native" }));
@@ -165,7 +188,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/api/remote/events", (req, reply) => remoteEvents.connect(req, reply));
   app.get("/api/device/status", async () => status());
   app.post<{ Body: Record<string, unknown> }>("/api/device/status", async (req, reply) => {
-    if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.ip)) return reply.code(403).send({ error: "Only the local player can publish status" });
+    if (!loopback(req.ip)) return reply.code(403).send({ error: "Only the local player can publish status" });
     const body = req.body ?? {};
     const seconds = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
     const previous = status();
@@ -205,9 +228,35 @@ export function createApp(options: AppOptions = {}) {
     catch (error) { return reply.code(400).send({ error: String((error as Error).message) }); }
   });
   app.post<{ Body: { url?: string; kind?: "audio" | "video"; retry?: boolean } }>("/api/media/prepare", async (req, reply) => {
-    try { return media.prepare(req.body?.url, req.body?.kind ?? "video", req.body?.retry === true); }
+    try { return media.prepare(req.body?.url, req.body?.kind ?? "audio", req.body?.retry === true); }
     catch (error) { return reply.code(400).send({ error: String((error as Error).message) }); }
   });
+  // The TV's player: a video's streams, and the relay it reads them through. Only
+  // the local player uses these (nginx refuses them from the network too).
+  app.get<{ Querystring: { url?: string; fresh?: string } }>("/api/stream", async (req, reply) => {
+    if (!loopback(req.ip)) return reply.code(403).send({ error: "Only the local player can open streams" });
+    try { return await streams.resolve(req.query.url, req.query.fresh === "1"); }
+    catch (error) { return reply.code(error instanceof StreamError ? error.status : 502).send({ error: (error as Error).message }); }
+  });
+  app.post<{ Body: { url?: string } }>("/api/stream/warm", async (req, reply) => {
+    if (!loopback(req.ip)) return reply.code(403).send({ error: "Only the local player can open streams" });
+    streams.warm(req.body?.url);
+    return reply.code(202).send({ ok: true });
+  });
+  app.route<{ Params: { id: string; track: string } }>({ method: ["GET", "HEAD"], url: "/api/stream/:id/:track", handler: async (req, reply) => {
+    if (!loopback(req.ip)) return reply.code(403).send({ error: "Only the local player can open streams" });
+    // The player closes the connection to seek; stop fetching for it then.
+    const controller = new AbortController();
+    reply.raw.once("close", () => controller.abort());
+    try {
+      const relayed = await streams.relay(req.params.id, req.params.track, req.headers.range, req.method === "HEAD", controller.signal);
+      reply.code(relayed.status).headers(relayed.headers);
+      return relayed.body ? reply.send(relayed.body) : reply.send();
+    } catch (error) {
+      if (controller.signal.aborted) return reply.code(499).send();
+      return reply.code(error instanceof StreamError ? error.status : 502).send({ error: (error as Error).message });
+    }
+  } });
   app.get<{ Params: { key: string } }>("/api/media/:key", async (req, reply) => media.get(req.params.key) ?? reply.code(404).send({ error: "Media asset not found" }));
   app.route<{ Params: { key: string } }>({ method: ["GET", "HEAD"], url: "/api/media/:key/file", handler: async (req, reply) => {
     const file = media.file(req.params.key);
@@ -634,8 +683,14 @@ app.register(async (admin) => {
 });
 
 
-  app.addHook("onReady", async () => { media.queueExisting(); if (options.startWorker !== false && process.env.MEDIA_WORKER_DISABLED !== "1") media.start(); });
+  app.addHook("onReady", async () => {
+    media.queueExisting();
+    if (backgroundWork) {
+      media.start();
+      for (const { youtube_url } of db.prepare("SELECT youtube_url FROM media_items WHERE is_playlist=0 AND (title='' OR title=youtube_url)").all() as { youtube_url: string }[]) streams.warm(youtube_url);
+    }
+  });
   app.addHook("preClose", async () => { deviceEvents.close(); remoteEvents.close(); backgroundEvents.close(); });
-  app.addHook("onClose", async () => { clearInterval(tvPoll); await media.close(); db.close(); });
-  return { app, db, media };
+  app.addHook("onClose", async () => { clearInterval(tvPoll); streams.close(); await media.close(); db.close(); });
+  return { app, db, media, streams };
 }

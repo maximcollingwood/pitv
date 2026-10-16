@@ -1,19 +1,20 @@
 # PiTV
 
 A Raspberry Pi media appliance for shared reading, lyrics, video and background
-music. The TV runs a **native Qt Quick application with GStreamer playback**.
+music. The TV runs a **native Qt Quick application with libmpv playback**.
 Phones use a small web companion for remote control and PIN-protected editing.
 
-Administrators paste YouTube links. The service discovers titles/playlists and
-prepares media in the background; ready files play from the Pi. Browsing content
-and playing cached media do not depend on an internet connection. New imports do.
+Administrators paste YouTube links. Videos stream from YouTube when played, like
+on a TV box; background music is downloaded to the Pi so it plays without
+internet. Browsing content does not depend on an internet connection; videos do.
 
 ## Architecture
 
 - `native/`: C++/Qt 6 Quick television UI, local navigation, QR remote pairing,
-  cached content snapshot, GStreamer audio/video and playback recovery.
-- `server/`: Fastify/TypeScript API, SQLite content, persistent media queue,
-  yt-dlp imports, ranged local media serving and unbuffered live control events.
+  cached content snapshot, libmpv audio/video and playback recovery.
+- `server/`: Fastify/TypeScript API, SQLite content, YouTube stream lookups and
+  relay (`streams.ts`), background-music downloads, ranged local media serving
+  and unbuffered live control events.
 - `app/`: React phone remote and editor. The browser no longer runs on the TV.
 - `db/`: additive database schema and initial content. Normal startup never resets
   an existing library.
@@ -90,15 +91,15 @@ npm test
 npm run build
 ```
 
-For actual media imports, install FFmpeg/ffprobe and `yt-dlp[default]`. The importer
+For real videos and music, install FFmpeg/ffprobe and `yt-dlp[default]`. yt-dlp
 uses Node as its YouTube JavaScript challenge runtime. Set `YTDLP_PATH` when the
-executable is outside PATH. Metadata and content failures are visible in the
-editor's media preparation view; failed jobs can be retried there or on the TV.
+executable is outside PATH. Background-music downloads are listed in the editor's
+media preparation view; failed ones can be retried there or on the TV.
 
 ## Build the native application on Linux
 
 The baseline is Debian Bookworm / 64-bit Raspberry Pi OS with Qt 6.4 and
-GStreamer 1.22 or later. Install packages listed in
+libmpv 0.35 or later. Install packages listed in
 `ansible/roles/native/tasks/main.yml`, or provision the development VM below.
 
 ```sh
@@ -108,16 +109,17 @@ ctest --test-dir native/build --output-on-failure
 PITV_API_URL=http://127.0.0.1:3000 ./native/build/pitv-native
 ```
 
-Run the app in a graphical Linux session for video. It uses OpenGL and the
-GStreamer `qml6glsink` plugin, which on Bookworm (GStreamer 1.22, Qt 6.4) only
-supports X11: run it with `QT_QPA_PLATFORM=xcb` (under Xwayland on a Wayland
-desktop). Hardware decode depends on the installed driver, codec plugins and OS,
-not just a launch flag; the Pi 4 uses `v4l2h264dec`. Unit/UI smoke tests also run
-headlessly, without an HDMI display. The source includes a sample library fixture.
+Run the app in a graphical Linux session for video. libmpv draws the video with
+OpenGL into the Qt Quick scene; the Pi runs the app with `QT_QPA_PLATFORM=xcb`
+under labwc's Xwayland. Video is decoded in software: the Pi 4's hardware H.264
+decoder (`bcm2835-codec`) stops answering when flushed for a seek, freezing the
+picture and the sound, while software decoding of 1080p takes about 15% of the
+Pi's CPU. Unit/UI smoke tests also run headlessly, without an HDMI display. The
+source includes a sample library fixture.
 
-The playback integration check generates a short test clip, renders it through
-Qt/GStreamer under Xvfb, and records a private PipeWire output to verify audio
-samples. It requires FFmpeg, Xvfb, PipeWire, WirePlumber, `pulseaudio-utils` and
+The playback integration check generates a short picture-only clip and a
+sound-only clip, plays them together through Qt/libmpv under Xvfb (as a YouTube
+stream plays), and records a private PipeWire output to verify audio samples. It requires FFmpeg, Xvfb, PipeWire, WirePlumber, `pulseaudio-utils` and
 `dbus-run-session`, in addition to the native dependencies:
 
 ```sh
@@ -157,8 +159,8 @@ For the phone companion, `npm run vm:app` serves it with live reload at
 `http://localhost:5173/remote`, talking to the VM's API through
 `http://localhost:8080`, so the remote drives the VM's TV.
 
-To work with real content, copy a Pi's database, uploaded images and prepared
-media into the VM. The Pi is only read; the VM's previous database is kept in
+To work with real content, copy a Pi's database, uploaded images and downloaded
+music into the VM. The Pi is only read; the VM's previous database is kept in
 `/var/lib/pitv/vm-before-pull-*.db`. Run from Git Bash with the VM running:
 
 ```sh
@@ -167,7 +169,7 @@ bash tools/pull-pi-content.sh
 
 It defaults to `pitv@raspberrypi.local` over SSH (key auth; set `PITV_SSH_KEY`
 for a key file other than `~/.ssh/id_ed25519_pitv`). Add `--no-media` to skip the
-video cache. The admin PIN is not copied: the VM keeps its own in
+music files. The admin PIN is not copied: the VM keeps its own in
 `/etc/kiosk/admin.env`.
 
 ## Install or update a Pi
@@ -205,7 +207,8 @@ The native launcher replaces Chromium; its old profile is left available for rec
 
 - `kiosk.service`: labwc session and native application restart loop (the app is
   an X11 client on labwc's Xwayland).
-- `pitv-backend.service`: API and managed importer worker.
+- `pitv-backend.service`: API, YouTube stream relay and music downloads.
+- `pitv-update-ytdlp.timer`: installs each new yt-dlp release daily.
 - nginx: phone companion, API proxy and uploaded images.
 - PipeWire/WirePlumber: HDMI output, hotplug recovery and no idle suspension.
 
@@ -217,40 +220,60 @@ Change `ADMIN_PIN` in `/etc/kiosk/admin.env` and restart `pitv-backend`. An opti
 `/etc/kiosk/media.env` holds media configuration overrides. The old YouTube Data
 API key is no longer required. Keep device secrets outside Git.
 
-## Media preparation and storage
+## Video streaming
 
-The worker handles one job at a time, persists queue/retry state, validates completed
-files with ffprobe and exposes only completed media. Video selection requests
-H.264 at up to 1080p to suit the Pi 4. Audio tracks are prepared separately.
+Videos play straight from YouTube, as on a TV box; nothing is downloaded. When a
+video is chosen, the server looks up its streams with yt-dlp (a few seconds; a
+video highlighted on the TV is looked up ahead, so it usually starts at once) and
+picks H.264 up to 1080p at 30 frames per second, with AAC sound. Above 360p
+YouTube sends picture and sound separately; the TV's player (libmpv) plays the
+two together, reading about two minutes ahead into memory, so seeking nearby is
+instant.
+
+The player reads the streams through a relay in the server (`/api/stream/:id/…`,
+loopback only). YouTube holds a long or open-ended request to about 5 Mbit/s
+but serves requests of 10 MB or less at full speed (about 45 Mbit/s on the
+library's connection), so the relay fetches in 8 MB pieces. Stream addresses
+expire after about six hours and only work from the device that looked them up;
+the relay looks an expired address up again mid-stream. A stream that stops
+loading reconnects where it stopped, three times before the TV asks for help.
+
+yt-dlp has to keep up with YouTube's changes, so `pitv-update-ytdlp.timer`
+installs each new release daily and goes back if one does not start.
+`yt_dlp_version` is only the oldest release the device accepts. Videos need the
+internet; when YouTube or the connection is down, the TV says so and the rest of
+the library still works.
+
+## Background music
+
+Background tracks are downloaded so the music plays without internet. The worker
+handles one job at a time, persists queue/retry state, validates completed files
+with ffprobe and exposes only completed media. Copies of videos downloaded by
+earlier versions are deleted when the server starts.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `MEDIA_CACHE_LIMIT_MB` | 4096 | Managed storage budget, including preparation space |
 | `MEDIA_MAX_ASSET_MB` | 512 | Maximum completed file size |
 | `MEDIA_QUEUE_LIMIT` | 200 | Pending job limit |
-| `MEDIA_PLAYLIST_PREFETCH` | 10 | Videos automatically prepared per playlist |
 | `MEDIA_MIN_FREE_MB` | 256 | Free disk space reserve |
 | `MEDIA_MAX_ATTEMPTS` | 3 | Automatic attempts before showing a retry action |
 | `MEDIA_JOB_TIMEOUT_MS` | 1800000 | Time limit per preparation job |
 
-Older cached media may be removed to make room; active/recent playback is protected.
-Selecting uncached media prepares it on demand. Playlist discovery is capped at
-500 entries, with metadata refreshed after six hours. Live/restricted/unavailable
-videos and files beyond the limits may fail preparation. Preparing a new item can
-take time; the UI reports its state rather than blocking navigation.
-
-Use media that can be stored locally. YouTube extraction remains an external
-integration that needs occasional updates. `yt_dlp_version` pins the importer
-independently; change that version and re-provision to update it. Existing ready
-media continues to work when new imports fail.
+Older music files may be removed to make room; the playing track is protected.
+Playlist discovery (listing a playlist's videos) is capped at 500 entries, with
+metadata refreshed after six hours.
 
 ## Verification on the Pi
 
 Before putting a rewritten installation into service, verify:
 
-- Boot with internet disconnected; browse cached content and play prepared media.
+- Boot with internet disconnected; browse cached content and play background music;
+  a video says it cannot reach YouTube.
 - Navigate long lists and lyrics; measure frame timing and remote input latency.
-- Play representative 1080p H.264 clips and confirm the actual decoder in GStreamer logs.
+- Play a 1080p video, seek repeatedly in both directions and leave the player;
+  the picture and the background music must carry on, and
+  `journalctl -k -b | grep bcm2835-codec` must stay empty (software decoding).
 - Turn the TV off/on and switch HDMI inputs during playback; confirm sound recovers
   (`journalctl -b | grep -E "CEC|HDMI audio"` shows the screen following the TV).
 - Interrupt an import, restart the backend, and confirm the queue recovers.

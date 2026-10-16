@@ -17,6 +17,7 @@ export interface DeviceStatus {
   // The TV's power, followed over HDMI-CEC; null when the screen cannot tell.
   tv?: "on" | "standby" | null;
 }
+// A background track downloaded to the device. Videos stream and have no asset.
 export interface MediaAsset {
   key: string;
   sourceUrl: string;

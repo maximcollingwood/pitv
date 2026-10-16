@@ -1,209 +1,256 @@
 #include "MediaEngine.h"
-#include <QDateTime>
 #include <QDebug>
 #include <QFileInfo>
 #include <QProcess>
 #include <algorithm>
+#include <cmath>
+#include <vector>
+#include <mpv/client.h>
 
-MediaEngine::MediaEngine(GstElement *sink, QObject *parent) : QObject(parent), sink_(sink) {
-    if (sink_) gst_object_ref(sink_);
+namespace {
+void option(mpv_handle *mpv, const char *name, const QByteArray &value) {
+    if (mpv_set_option_string(mpv, name, value.constData()) < 0) qWarning() << "mpv refused the option" << name << value;
 }
-MediaEngine::~MediaEngine() {
-    destroy(video_); destroy(background_);
-    if (sink_) gst_object_unref(sink_);
+enum Property : uint64_t { TimePos = 1, Duration, Pause, PausedForCache, EofReached };
+bool flag(const mpv_event_property *property) { return property->format == MPV_FORMAT_FLAG && *static_cast<int *>(property->data); }
 }
+
+mpv_handle *MediaEngine::createPlayer(bool video) {
+    auto *mpv = mpv_create();
+    if (!mpv) { qCritical() << "libmpv could not start"; return nullptr; }
+    // None of the machine's own mpv setup, on-screen display or key handling.
+    option(mpv, "config", "no"); option(mpv, "load-scripts", "no"); option(mpv, "ytdl", "no");
+    option(mpv, "input-default-bindings", "no"); option(mpv, "input-vo-keyboard", "no");
+    option(mpv, "idle", "yes");
+    // Sound goes to the HDMI output through PipeWire's PulseAudio service.
+    option(mpv, "ao", "pulse"); option(mpv, "audio-client-name", "PiTV");
+    const auto device = qgetenv("PITV_AUDIO_DEVICE");
+    if (!device.isEmpty()) option(mpv, "audio-device", "pulse/" + device);
+    option(mpv, "volume-max", "100");
+    // A connection that stops answering is given up, so playback can reconnect.
+    option(mpv, "network-timeout", "15");
+    option(mpv, "stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=4");
+    if (video) {
+        option(mpv, "vo", "libmpv");
+        // Software H.264 decoding. The Pi 4's hardware decoder (bcm2835-codec) stops
+        // answering when it is flushed for a seek; software decoding of 1080p takes
+        // about 15% of the Pi's CPU.
+        option(mpv, "hwdec", "no");
+        // Stay on the last frame at the end instead of closing the video.
+        option(mpv, "keep-open", "yes");
+        // Read up to two minutes ahead and keep about a minute behind for jumping back.
+        option(mpv, "cache", "yes"); option(mpv, "cache-secs", "120");
+        option(mpv, "demuxer-max-bytes", "64MiB"); option(mpv, "demuxer-max-back-bytes", "32MiB");
+        // After running dry, gather a couple of seconds before playing on.
+        option(mpv, "cache-pause-wait", "2");
+        // Cheap scaling for the Pi's GPU, whichever mpv version is installed.
+        for (const char *name : {"scale", "cscale", "dscale"}) option(mpv, name, "bilinear");
+        for (const char *name : {"dither-depth", "correct-downscaling", "linear-downscaling", "sigmoid-upscaling", "hdr-compute-peak"}) option(mpv, name, "no");
+        option(mpv, "sub-auto", "no"); option(mpv, "sid", "no");
+    } else {
+        option(mpv, "vid", "no"); option(mpv, "audio-display", "no");
+        // Background music repeats its track.
+        option(mpv, "loop-file", "inf");
+    }
+    if (mpv_initialize(mpv) < 0) { qCritical() << "libmpv could not initialize"; mpv_destroy(mpv); return nullptr; }
+    mpv_request_log_messages(mpv, "warn");
+    return mpv;
+}
+MediaEngine::MediaEngine(mpv_handle *video, QObject *parent) : QObject(parent) {
+    video_.mpv = video; video_.video = true;
+}
+MediaEngine::~MediaEngine() { shutdown(); }
 void MediaEngine::initialize() {
-    poll_ = new QTimer(this);
-    poll_->setInterval(100);
-    connect(poll_, &QTimer::timeout, this, [this] {
-        ++ticks_; drain(video_, true); drain(background_, false);
+    background_.mpv = createPlayer(false);
+    attach(video_); attach(background_);
+    // Position changes arrive many times a second; they are passed on twice a second.
+    tick_ = new QTimer(this);
+    tick_->setInterval(500);
+    connect(tick_, &QTimer::timeout, this, [this] { for (auto *channel : {&video_, &background_}) if (channel->positionChanged) publish(*channel); });
+    tick_->start();
+    retry_ = new QTimer(this);
+    retry_->setSingleShot(true);
+    connect(retry_, &QTimer::timeout, this, [this] {
+        if (!background_.desired || background_.error.isEmpty()) return;
+        background_.source.insert("start", background_.position);
+        open(background_);
     });
-    poll_->start();
+}
+void MediaEngine::attach(Channel &channel) {
+    if (!channel.mpv) return;
+    channel.engine = this;
+    mpv_observe_property(channel.mpv, TimePos, "time-pos", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(channel.mpv, Duration, "duration", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(channel.mpv, Pause, "pause", MPV_FORMAT_FLAG);
+    mpv_observe_property(channel.mpv, PausedForCache, "paused-for-cache", MPV_FORMAT_FLAG);
+    mpv_observe_property(channel.mpv, EofReached, "eof-reached", MPV_FORMAT_FLAG);
+    double volume = 100 * std::cbrt(volume_);
+    mpv_set_property_async(channel.mpv, 0, "volume", MPV_FORMAT_DOUBLE, &volume);
+    mpv_set_wakeup_callback(channel.mpv, wakeup, &channel);
+}
+// From mpv's own threads: only ask this thread to collect the events.
+void MediaEngine::wakeup(void *data) {
+    auto *channel = static_cast<Channel *>(data);
+    if (channel->wake.exchange(true)) return;
+    QMetaObject::invokeMethod(channel->engine, [channel] { channel->wake = false; channel->engine->drain(*channel); }, Qt::QueuedConnection);
 }
 void MediaEngine::videoReady(bool success) {
-    ready_ = success;
-    if (!success) { fail(video_, true, "The OpenGL video output could not initialize. Check the display service."); return; }
-    if (!video_.uri.isEmpty()) { const auto uri = video_.uri; load(uri, true); }
+    outputReady_ = success;
+    if (!success) { fail(video_, "The video output could not start. Restart the screen from the admin page."); return; }
+    if (videoWaiting_) { videoWaiting_ = false; open(video_); }
 }
-bool MediaEngine::build(Channel &ch, bool video) {
-    if (ch.playbin) return true;
-    if (video && !ready_) return false;
-    auto *playbin = gst_element_factory_make("playbin", nullptr);
-    auto *audio = gst_element_factory_make("pulsesink", nullptr);
-    if (!playbin || !audio) {
-        if (playbin) gst_object_unref(playbin);
-        if (audio) gst_object_unref(audio);
-        ch.error = "Missing GStreamer playbin or pulsesink. Install the base and good plugins.";
-        publish(ch, video); return false;
-    }
-    const auto device = qgetenv("PITV_AUDIO_DEVICE");
-    if (!device.isEmpty()) g_object_set(audio, "device", device.constData(), nullptr);
-    g_object_set(audio, "client-name", "PiTV", nullptr);
-    g_object_set(playbin, "audio-sink", audio, "volume", volume_, nullptr);
-    if (video) {
-        auto *bin = gst_element_factory_make("glsinkbin", nullptr);
-        if (!bin || !sink_) {
-            if (bin) gst_object_unref(bin);
-            gst_object_unref(playbin);
-            ch.error = "Missing GStreamer glsinkbin/qml6glsink. Install the GL and Qt6 plugins.";
-            publish(ch, video); return false;
-        }
-        // sink_ was initialized to READY on the Qt render thread before any
-        // other GL element, so the whole pipeline shares Qt's GstGLDisplay.
-        g_object_set(bin, "sink", sink_, nullptr);
-        g_object_set(playbin, "video-sink", bin, nullptr);
-        guint flags = 0; g_object_get(playbin, "flags", &flags, nullptr);
-        g_object_set(playbin, "flags", flags & ~4u, nullptr); // subtitles are not a second QML overlay
-    } else {
-        guint flags = 0; g_object_get(playbin, "flags", &flags, nullptr);
-        g_object_set(playbin, "flags", (flags | 2u) & ~5u, nullptr); // audio only
-    }
-    ch.playbin = playbin;
-    ch.bus = gst_element_get_bus(playbin);
-    return true;
-}
-void MediaEngine::load(const QString &uri, bool video) {
+void MediaEngine::load(const QVariantMap &source, bool video) {
     if (closing_) return;
-    auto &ch = video ? video_ : background_;
-    ch.uri = uri; ch.desired = true; ch.playing = false; ch.ended = false;
-    ch.position = 0; ch.duration = 0; ch.resumeAt = 0; ch.retryAt = 0; ch.retries = 0; ch.error.clear();
-    if (!build(ch, video)) { publish(ch, video); return; }
-    gst_element_set_state(ch.playbin, GST_STATE_READY);
-    gst_bus_set_flushing(ch.bus, TRUE); gst_bus_set_flushing(ch.bus, FALSE);
-    g_object_set(ch.playbin, "uri", uri.toUtf8().constData(), nullptr);
-    publish(ch, video);
-    if (gst_element_set_state(ch.playbin, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE)
-        fail(ch, video, "Playback could not start. Check audio output and media availability.");
+    auto &channel = video ? video_ : background_;
+    channel.source = source; channel.desired = true; channel.retries = 0;
+    if (!video && retry_) retry_->stop();
+    open(channel);
+}
+void MediaEngine::open(Channel &channel) {
+    channel.error.clear(); channel.loaded = false; channel.eof = false; channel.buffering = false;
+    channel.position = std::max(0.0, channel.source.value("start").toDouble()); channel.duration = 0;
+    if (!channel.mpv) { fail(channel, "The player could not start. Restart the screen from the admin page."); return; }
+    // mpv opens a video only once there is somewhere to draw it.
+    if (channel.video && !outputReady_) { videoWaiting_ = true; publish(channel); return; }
+    QByteArray url = channel.source.value("url").toString().toUtf8();
+    const auto audio = channel.source.value("audio").toString().toUtf8();
+    // Separate picture and sound streams play together, as in mpv's own YouTube support.
+    if (!audio.isEmpty()) {
+        const auto track = [](const QByteArray &part) { return "!new_stream;!no_clip;!no_chapters;%" + QByteArray::number(part.size()) + "%" + part; };
+        url = "edl://" + track(url) + ";" + track(audio);
+    }
+    mpv_set_property_string(channel.mpv, "start", QByteArray::number(channel.position, 'f', 3).constData());
+    const auto agent = channel.source.value("userAgent").toString();
+    mpv_set_property_string(channel.mpv, "user-agent", (agent.isEmpty() ? QStringLiteral("PiTV") : agent).toUtf8().constData());
+    std::vector<QByteArray> fields;
+    for (const auto &header : channel.source.value("headers").toStringList()) fields.push_back(header.toUtf8());
+    std::vector<mpv_node> items(fields.size());
+    for (size_t i = 0; i < fields.size(); ++i) { items[i].format = MPV_FORMAT_STRING; items[i].u.string = fields[i].data(); }
+    mpv_node_list list{int(items.size()), items.data(), nullptr};
+    mpv_node headers; headers.format = MPV_FORMAT_NODE_ARRAY; headers.u.list = &list;
+    mpv_set_property(channel.mpv, "http-header-fields", MPV_FORMAT_NODE, &headers);
+    int pause = channel.desired ? 0 : 1;
+    mpv_set_property(channel.mpv, "pause", MPV_FORMAT_FLAG, &pause);
+    const char *command[]{"loadfile", url.constData(), "replace", nullptr};
+    mpv_command_async(channel.mpv, 0, command);
+    publish(channel);
 }
 void MediaEngine::stop(bool video) {
-    auto &ch = video ? video_ : background_;
-    ch.desired = false; ch.playing = false; ch.uri.clear(); ch.error.clear();
-    ch.retryAt = 0; ch.position = 0; ch.duration = 0; ch.resumeAt = 0;
-    if (ch.playbin) {
-        gst_element_set_state(ch.playbin, GST_STATE_READY);
-        gst_bus_set_flushing(ch.bus, TRUE); gst_bus_set_flushing(ch.bus, FALSE);
-    }
-    publish(ch, video);
+    auto &channel = video ? video_ : background_;
+    channel.desired = false; channel.source.clear(); channel.error.clear();
+    channel.loaded = false; channel.eof = false; channel.buffering = false; channel.position = channel.duration = 0;
+    if (video) videoWaiting_ = false;
+    if (!video && retry_) retry_->stop();
+    if (channel.mpv) { const char *command[]{"stop", nullptr}; mpv_command_async(channel.mpv, 0, command); }
+    publish(channel);
 }
 void MediaEngine::setPaused(bool paused, bool video) {
-    auto &ch = video ? video_ : background_;
-    ch.desired = !paused;
-    if (!ch.playbin || ch.uri.isEmpty()) return;
-    if (!ch.error.isEmpty()) {
-        if (!paused) { ch.retries = 0; ch.retryAt = QDateTime::currentMSecsSinceEpoch() + 1; }
-        return;
+    auto &channel = video ? video_ : background_;
+    channel.desired = !paused;
+    if (!channel.mpv || channel.source.isEmpty()) return;
+    // Play after a failure tries again.
+    if (!channel.error.isEmpty()) { if (!paused) { channel.retries = 0; open(channel); } return; }
+    if (channel.eof && !paused) {
+        const char *command[]{"seek", "0", "absolute", nullptr};
+        mpv_command_async(channel.mpv, 0, command);
     }
-    if (ch.ended && !paused) {
-        gst_element_seek_simple(ch.playbin, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH, 0);
-        ch.ended = false;
-    }
-    if (gst_element_set_state(ch.playbin, paused ? GST_STATE_PAUSED : GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE)
-        fail(ch, video, "Audio/video output is unavailable. Reconnecting…");
+    int pause = paused ? 1 : 0;
+    mpv_set_property_async(channel.mpv, 0, "pause", MPV_FORMAT_FLAG, &pause);
 }
 void MediaEngine::toggleVideo() { setPaused(video_.desired, true); }
 void MediaEngine::seek(double seconds) {
-    if (!video_.playbin || video_.uri.isEmpty()) return;
-    const auto target = std::clamp(video_.position + seconds, 0.0, std::max(0.0, video_.duration - .1));
-    gst_element_seek_simple(video_.playbin, GST_FORMAT_TIME,
-        GstSeekFlags(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT), gint64(target * GST_SECOND));
+    if (!video_.mpv || !video_.loaded) return;
+    const auto amount = QByteArray::number(seconds);
+    const char *command[]{"seek", amount.constData(), "relative", nullptr};
+    mpv_command_async(video_.mpv, 0, command);
 }
 void MediaEngine::setVolume(double level) {
     volume_ = std::clamp(level, 0.0, 1.0);
+    // mpv's volume is cubic; the saved level is a linear gain, as it was with GStreamer.
+    double volume = 100 * std::cbrt(volume_);
     for (auto *channel : {&video_, &background_})
-        if (channel->playbin) g_object_set(channel->playbin, "volume", volume_, nullptr);
+        if (channel->mpv) mpv_set_property_async(channel->mpv, 0, "volume", MPV_FORMAT_DOUBLE, &volume);
 }
-void MediaEngine::publish(const Channel &ch, bool video) {
-    emit status(video, ch.playing, ch.position, ch.duration, ch.error);
-}
-void MediaEngine::fail(Channel &ch, bool video, const QString &error) {
-    ch.error = error; ch.playing = false;
-    ch.resumeAt = ch.position;
-    if (ch.playbin) gst_element_set_state(ch.playbin, GST_STATE_READY);
-    if (!ch.uri.isEmpty() && ch.retries < 5) {
-        ch.retryAt = QDateTime::currentMSecsSinceEpoch() + std::min(30000, 2000 << ch.retries);
-        ++ch.retries;
-    } else ch.retryAt = 0;
-    qWarning().noquote() << (video ? "Video:" : "Background audio:") << error;
-    publish(ch, video);
-}
-// A playback failure such as a hardware decoder stall can glitch the HDMI
-// output, and some TVs then drop the audio and stay silent although the Pi
-// keeps sending it. Restarting the HDMI audio output makes them pick it up
-// again. After a failure at most once a minute; the script exists only on
-// provisioned systems.
-bool MediaEngine::resetAudio(bool tvOn) {
-    const QString script = QStringLiteral("/usr/local/bin/kiosk-audio-reset.sh");
-    const auto now = QDateTime::currentMSecsSinceEpoch();
-    if ((!tvOn && now - lastAudioReset_ < 60000) || !QFileInfo(script).isExecutable()) return false;
-    lastAudioReset_ = now;
-    qWarning().noquote() << (tvOn ? "Restarting HDMI audio for the TV that came on" : "Restarting HDMI audio after a playback failure");
-    return QProcess::startDetached(script, {});
-}
-void MediaEngine::drain(Channel &ch, bool video) {
-    if (!ch.playbin || closing_) return;
-    while (auto *msg = gst_bus_pop(ch.bus)) {
-        switch (GST_MESSAGE_TYPE(msg)) {
-        case GST_MESSAGE_ERROR: {
-            GError *error = nullptr; gchar *debug = nullptr;
-            gst_message_parse_error(msg, &error, &debug);
-            const QString description = error ? QString::fromUtf8(error->message) : "Playback failed.";
-            if (debug) qWarning().noquote() << debug;
-            if (error) g_error_free(error);
-            g_free(debug);
-            fail(ch, video, description);
-            // Leave the reset time to finish before the retry opens a new stream.
-            if (resetAudio() && ch.retryAt) ch.retryAt = std::max(ch.retryAt, QDateTime::currentMSecsSinceEpoch() + 5000);
+void MediaEngine::drain(Channel &channel) {
+    if (!channel.mpv || closing_) return;
+    bool changed = false;
+    for (;;) {
+        auto *event = mpv_wait_event(channel.mpv, 0);
+        if (event->event_id == MPV_EVENT_NONE) break;
+        switch (event->event_id) {
+        case MPV_EVENT_LOG_MESSAGE: {
+            const auto *message = static_cast<mpv_event_log_message *>(event->data);
+            // ffmpeg's decoder warns about harmless quirks of YouTube's streams
+            // ("Late SEI is not implemented") many times a minute; its errors still show.
+            if (message->log_level == MPV_LOG_LEVEL_WARN && QByteArray(message->prefix).startsWith("ffmpeg/video")) break;
+            qWarning().noquote() << (channel.video ? "Video player:" : "Music player:") << message->prefix << QString::fromUtf8(message->text).trimmed();
             break;
         }
-        case GST_MESSAGE_EOS:
-            ch.playing = false; ch.ended = true; ch.desired = false;
-            publish(ch, video); emit ended(video); break;
-        case GST_MESSAGE_STATE_CHANGED:
-            if (GST_MESSAGE_SRC(msg) == GST_OBJECT(ch.playbin)) {
-                GstState old, state, pending;
-                gst_message_parse_state_changed(msg, &old, &state, &pending);
-                ch.playing = state == GST_STATE_PLAYING;
-                if (ch.playing) { ch.error.clear(); ch.retryAt = 0; }
-                publish(ch, video);
+        case MPV_EVENT_START_FILE: channel.loaded = false; changed = true; break;
+        case MPV_EVENT_FILE_LOADED: channel.loaded = true; channel.error.clear(); changed = true; break;
+        case MPV_EVENT_END_FILE: {
+            const auto *end = static_cast<mpv_event_end_file *>(event->data);
+            channel.loaded = false; changed = true;
+            if (end->reason == MPV_END_FILE_REASON_ERROR && channel.desired)
+                fail(channel, channel.video ? QString("The video could not be played (%1).").arg(mpv_error_string(end->error))
+                                            : QString("Background music could not play (%1).").arg(mpv_error_string(end->error)));
+            break;
+        }
+        case MPV_EVENT_PROPERTY_CHANGE: {
+            const auto *property = static_cast<mpv_event_property *>(event->data);
+            const bool known = property->format == MPV_FORMAT_DOUBLE;
+            switch (event->reply_userdata) {
+            case TimePos: if (known) { channel.position = *static_cast<double *>(property->data); channel.positionChanged = true; } break;
+            case Duration: channel.duration = known ? *static_cast<double *>(property->data) : 0; changed = true; break;
+            case Pause: channel.paused = flag(property); changed = true; break;
+            case PausedForCache: channel.buffering = flag(property); changed = true; break;
+            case EofReached:
+                channel.eof = flag(property); changed = true;
+                if (!channel.eof || !channel.video || !channel.desired) break;
+                // A stream that ends well before its length was cut off: say so, so the
+                // player reconnects instead of treating the video as finished.
+                if (channel.duration > 0 && channel.position < channel.duration - 5) fail(channel, "The video stream stopped.");
+                else { channel.desired = false; emit ended(true); }
+                break;
+            default: break;
             }
             break;
-        case GST_MESSAGE_ASYNC_DONE:
-            if (ch.resumeAt > 0) {
-                gst_element_seek_simple(ch.playbin, GST_FORMAT_TIME,
-                    GstSeekFlags(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT), gint64(ch.resumeAt * GST_SECOND));
-                ch.resumeAt = 0;
-            }
-            break;
-        case GST_MESSAGE_CLOCK_LOST:
-            if (ch.desired) {
-                gst_element_set_state(ch.playbin, GST_STATE_PAUSED);
-                gst_element_set_state(ch.playbin, GST_STATE_PLAYING);
-            }
-            break;
-        case GST_MESSAGE_LATENCY: gst_bin_recalculate_latency(GST_BIN(ch.playbin)); break;
+        }
         default: break;
         }
-        gst_message_unref(msg);
     }
-    if (ch.retryAt > 0 && ch.desired && QDateTime::currentMSecsSinceEpoch() >= ch.retryAt) {
-        ch.retryAt = 0;
-        g_object_set(ch.playbin, "uri", ch.uri.toUtf8().constData(), nullptr);
-        if (gst_element_set_state(ch.playbin, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE)
-            fail(ch, video, ch.error);
-    }
-    if (ticks_ % 5 == 0 && !ch.uri.isEmpty()) {
-        gint64 position = 0, duration = 0;
-        if (gst_element_query_position(ch.playbin, GST_FORMAT_TIME, &position)) ch.position = double(position) / GST_SECOND;
-        if (gst_element_query_duration(ch.playbin, GST_FORMAT_TIME, &duration)) ch.duration = double(duration) / GST_SECOND;
-        publish(ch, video);
-    }
+    if (changed) publish(channel);
 }
-void MediaEngine::destroy(Channel &ch) {
-    if (ch.playbin) { gst_element_set_state(ch.playbin, GST_STATE_NULL); gst_object_unref(ch.playbin); ch.playbin = nullptr; }
-    if (ch.bus) { gst_object_unref(ch.bus); ch.bus = nullptr; }
+void MediaEngine::publish(Channel &channel) {
+    channel.positionChanged = false;
+    const bool playing = channel.loaded && !channel.paused && !channel.buffering && !channel.eof && channel.error.isEmpty();
+    // Waiting on the network only counts while the video should be playing.
+    emit status(channel.video, playing, channel.loaded && channel.buffering && channel.desired, channel.position, channel.duration, channel.error);
+}
+void MediaEngine::fail(Channel &channel, const QString &error) {
+    channel.error = error; channel.loaded = false; channel.buffering = false;
+    qWarning().noquote() << (channel.video ? "Video:" : "Background audio:") << error;
+    // The video's stream is looked up again by the controller; the music, a file on
+    // this device, is simply reopened, less often each time.
+    if (!channel.video && channel.desired && retry_ && channel.retries < 5) { retry_->start(std::min(30000, 2000 << channel.retries)); ++channel.retries; }
+    publish(channel);
+}
+// Some TVs (the library's Vizio) stay silent after they come on until the HDMI
+// sound output restarts. The script exists only on provisioned systems.
+void MediaEngine::restartAudio() {
+    const QString script = QStringLiteral("/usr/local/bin/kiosk-audio-reset.sh");
+    if (!QFileInfo(script).isExecutable()) return;
+    qWarning() << "Restarting HDMI audio for the TV that came on";
+    QProcess::startDetached(script, {});
 }
 void MediaEngine::shutdown() {
     closing_ = true;
-    if (poll_) poll_->stop();
-    destroy(video_); destroy(background_);
+    if (tick_) tick_->stop();
+    if (retry_) retry_->stop();
+    for (auto *channel : {&video_, &background_}) {
+        if (!channel->mpv) continue;
+        mpv_set_wakeup_callback(channel->mpv, nullptr, nullptr);
+        mpv_terminate_destroy(channel->mpv);
+        channel->mpv = nullptr;
+    }
 }

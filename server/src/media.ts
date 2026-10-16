@@ -17,8 +17,7 @@ interface AssetRow {
 interface PlaylistRow { id: string; status: string; title: string; videos: string; error: string | null; attempts: number; created_at: number; updated_at: number; priority: number }
 export interface MediaOptions {
   cacheDir: string; cacheLimitBytes?: number; maxAssetBytes?: number; queueLimit?: number;
-  timeoutMs?: number; maxAttempts?: number; retryBaseMs?: number; playlistPrefetch?: number;
-  minFreeBytes?: number;
+  timeoutMs?: number; maxAttempts?: number; retryBaseMs?: number; minFreeBytes?: number;
   ytdlpPath?: string; ffmpegPath?: string; ffprobePath?: string; runner?: ProcessRunner;
   onEvent?: (event: unknown) => void;
 }
@@ -37,7 +36,6 @@ export class MediaManager {
   private readonly timeoutMs: number;
   private readonly maxAttempts: number;
   private readonly retryBaseMs: number;
-  private readonly prefetch: number;
   private readonly minFreeBytes: number;
   private readonly runner: ProcessRunner;
   private readonly ytdlp: string;
@@ -62,7 +60,6 @@ export class MediaManager {
     this.timeoutMs = options.timeoutMs ?? envNumber("MEDIA_JOB_TIMEOUT_MS", 1800000);
     this.maxAttempts = options.maxAttempts ?? envNumber("MEDIA_MAX_ATTEMPTS", 3);
     this.retryBaseMs = options.retryBaseMs ?? 15000;
-    this.prefetch = options.playlistPrefetch ?? envNumber("MEDIA_PLAYLIST_PREFETCH", 10);
     this.minFreeBytes = options.minFreeBytes ?? envNumber("MEDIA_MIN_FREE_MB", 256) * 1024 * 1024;
     this.runner = options.runner ?? runProcess;
     this.ytdlp = options.ytdlpPath ?? process.env.YTDLP_PATH ?? "yt-dlp";
@@ -74,6 +71,9 @@ export class MediaManager {
     for (const name of readdirSync(join(this.cacheDir, ".work"))) {
       if (/^(audio|video)-[A-Za-z0-9_-]{11}$/.test(name)) this.removeWorkDirectory(join(this.cacheDir, ".work", name));
     }
+    // Videos stream from YouTube when played (streams.ts). Copies downloaded by
+    // earlier versions are dropped; the reaping below deletes their files.
+    this.db.prepare("DELETE FROM media_assets WHERE kind='video'").run();
     this.db.prepare("UPDATE media_assets SET status='queued',progress=0,next_attempt=0 WHERE status='downloading'").run();
     this.db.prepare("UPDATE media_playlists SET status='queued',next_attempt=0 WHERE status='downloading'").run();
     for (const row of this.rows()) {
@@ -116,18 +116,18 @@ export class MediaManager {
     throw new Error("Media preparation queue is full. Try again after current imports finish.");
   }
   private emit(key: string) { this.onEvent({ type: "media", asset: this.get(key) }); }
+  /** Keep a background track on the device, so the music plays without internet. */
   prepare(url: unknown, kind: MediaKind, retry = false, accessed = true) {
-    if (!["audio", "video"].includes(kind)) throw new Error("kind must be audio or video");
+    if (kind === "video") throw new Error("Videos stream from YouTube when played; only background music is kept on the device.");
+    if (kind !== "audio") throw new Error("kind must be audio");
     const source = normalizeYouTube(url);
     if (!source.videoId || source.playlistId) throw new Error("Choose a video within the playlist to prepare playback");
     const key = `${kind}-${source.videoId}`;
     const existing = this.row(key);
     if (existing) {
       if (existing.status === "error" && retry) return this.retry(key);
-      if (existing.status === "ready" && existing.title) {
-        const table = kind === "audio" ? "background_tracks" : "media_items";
-        this.db.prepare(`UPDATE ${table} SET title=? WHERE youtube_url=? AND (title='' OR title=youtube_url)`).run(existing.title, source.url);
-      }
+      if (existing.status === "ready" && existing.title)
+        this.db.prepare("UPDATE background_tracks SET title=? WHERE youtube_url=? AND (title='' OR title=youtube_url)").run(existing.title, source.url);
       if (accessed) this.db.prepare("UPDATE media_assets SET accessed_at=?,priority=1 WHERE key=?").run(Date.now(), key);
       return this.toAsset(existing);
     }
@@ -162,17 +162,18 @@ export class MediaManager {
     if (row.title) this.db.prepare("UPDATE media_items SET title=? WHERE is_playlist=1 AND (title='' OR title=youtube_url) AND youtube_url=?").run(row.title, `https://www.youtube.com/playlist?list=${id}`);
     return { videos: JSON.parse(row.videos) as { id: string; title: string }[], source: cached ? "cache" : "extractor", status: row.status, error: row.error };
   }
+  /** Background tracks are downloaded and playlists discovered; a single video needs nothing. */
   queueSource(url: string, kind: MediaKind) {
     const source = normalizeYouTube(url);
     if (source.playlistId) return this.playlist(source.playlistId, false, false);
-    return this.prepare(source.url, kind, false, false);
+    return kind === "audio" ? this.prepare(source.url, kind, false, false) : null;
   }
   private librarySources() {
     return this.db.prepare("SELECT id,youtube_url,is_playlist,'video' AS kind FROM media_items UNION ALL SELECT id,youtube_url,0 AS is_playlist,'audio' AS kind FROM background_tracks").all() as { id: number; youtube_url: string; is_playlist: number; kind: MediaKind }[];
   }
   /**
-   * Reconcile the library with the queue: canonicalize legacy links, queue anything
-   * not yet prepared and refresh stale playlists. Rows are only rewritten when their
+   * Reconcile the library with the queue: canonicalize legacy links, queue background
+   * tracks not yet downloaded and refresh stale playlists. Rows are only rewritten when their
    * link changes, so an unchanged library costs no writes.
    */
   queueExisting() {
@@ -203,9 +204,6 @@ export class MediaManager {
         if (source.playlistId) playlists.add(source.playlistId);
         else keys.add(`${row.kind}-${source.videoId}`);
       } catch { /* an invalid link references nothing */ }
-    }
-    for (const row of this.db.prepare("SELECT id,videos FROM media_playlists").all() as { id: string; videos: string }[]) {
-      if (playlists.has(row.id)) for (const video of JSON.parse(row.videos) as { id: string }[]) keys.add(`video-${video.id}`);
     }
     const assets = this.db.prepare("SELECT key FROM media_assets WHERE status IN ('queued','error')").all() as { key: string }[];
     const lists = this.db.prepare("SELECT id FROM media_playlists WHERE status IN ('queued','error')").all() as { id: string }[];
@@ -274,9 +272,6 @@ export class MediaManager {
       const videos = (data.entries ?? []).filter(e => e.id && /^[A-Za-z0-9_-]{11}$/.test(e.id)).slice(0, 500).map(e => ({ id: e.id!, title: e.title ?? "" }));
       this.db.prepare("UPDATE media_playlists SET status='ready',title=?,videos=?,error=NULL,updated_at=? WHERE id=?").run(data.title ?? "", JSON.stringify(videos), Date.now(), row.id);
       this.db.prepare("UPDATE media_items SET title=? WHERE is_playlist=1 AND (title='' OR title=youtube_url) AND youtube_url=?").run(data.title ?? "", `https://www.youtube.com/playlist?list=${row.id}`);
-      for (const video of videos.slice(0, this.prefetch)) {
-        try { this.prepare(`https://www.youtube.com/watch?v=${video.id}`, "video", false, false); } catch { break; }
-      }
       this.onEvent({ type: "library" });
     } catch (error) { this.fail("media_playlists", row.id, row.attempts + 1, error); this.onEvent({ type: "library" }); }
   }
@@ -312,31 +307,15 @@ export class MediaManager {
           if (this.directoryBytes(directory) + this.cacheBytes() > this.cacheLimitBytes || space.bavail * space.bsize < this.minFreeBytes) { exceeded = true; this.controller?.abort(); }
         } catch { /* worker may have just moved the file */ }
       }, 1000);
-      const args = [...this.baseArgs(), "--no-playlist", "--max-filesize", String(this.maxAssetBytes), "--write-info-json", "--newline", "--progress", "--progress-template", "download:PITV_PROGRESS:%(progress._percent_str)s", "--output", join(directory, "payload.%(ext)s")];
-      if (row.kind === "audio") args.push("--format", "bestaudio[ext=m4a]/bestaudio/best", "--extract-audio", "--audio-format", "m4a");
-      else {
-        // Best H.264 quality that fits the per-file limit: a long talk too large at 1080p
-        // falls back to 720p or lower instead of failing. Only HTTP (DASH/progressive)
-        // formats carry exact sizes; HLS sizes are unknown at selection time, so HLS is
-        // only a last resort at 480p. The 10% margin leaves room for the audio track.
-        const budget = Math.floor(this.maxAssetBytes * 0.9);
-        const fits = `[protocol^=http][filesize<?${budget}][filesize_approx<?${budget}]`;
-        args.push("--format", `bv*[vcodec^=avc1][height<=1080]${fits}+ba[ext=m4a]/b[vcodec^=avc1][ext=mp4][height<=1080]${fits}/bv*[vcodec^=avc1][height<=480]+ba[ext=m4a]`, "--merge-output-format", "mp4");
-      }
-      args.push("--", row.source_url);
+      const args = [...this.baseArgs(), "--no-playlist", "--max-filesize", String(this.maxAssetBytes), "--write-info-json", "--newline", "--progress", "--progress-template", "download:PITV_PROGRESS:%(progress._percent_str)s", "--output", join(directory, "payload.%(ext)s"),
+        "--format", "bestaudio[ext=m4a]/bestaudio/best", "--extract-audio", "--audio-format", "m4a", "--", row.source_url];
       let lastProgress = 0;
-      try {
-        await this.runner(this.ytdlp, args, { signal, onLine: line => {
-          const match = /PITV_PROGRESS:\s*([\d.]+)%/.exec(line);
-          if (!match || Date.now() - lastProgress < 1000) return;
-          lastProgress = Date.now();
-          this.progress.set(row.key, Math.min(99, Number(match[1]))); this.emit(row.key);
-        } });
-      } catch (error) {
-        if (row.kind === "video" && /Requested format is not available/.test(String(error)))
-          throw new Error(`No H.264 version of this video fits the ${Math.round(this.maxAssetBytes / 1048576)} MB per-file limit (MEDIA_MAX_ASSET_MB).`);
-        throw error;
-      }
+      await this.runner(this.ytdlp, args, { signal, onLine: line => {
+        const match = /PITV_PROGRESS:\s*([\d.]+)%/.exec(line);
+        if (!match || Date.now() - lastProgress < 1000) return;
+        lastProgress = Date.now();
+        this.progress.set(row.key, Math.min(99, Number(match[1]))); this.emit(row.key);
+      } });
       if (exceeded) throw new Error("Media exceeds the configured disk cache limit");
       if (signal.aborted) throw new Error("Media preparation cancelled or timed out");
       const filename = readdirSync(directory).find(name => /^payload\.(mp4|m4a|webm|mkv|opus|mp3)$/.test(name));
@@ -344,14 +323,13 @@ export class MediaManager {
       const size = statSync(join(directory, filename)).size;
       if (size <= 0 || size > this.maxAssetBytes) throw new Error("Media file is empty or exceeds the configured asset size limit");
       const probe = JSON.parse(await this.runner(this.ffprobe, ["-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", join(directory, filename)], { signal })) as { format?: { duration?: string }; streams?: { codec_type?: string }[] };
-      if (!(Number(probe.format?.duration) > 0) || !probe.streams?.some(stream => stream.codec_type === (row.kind === "video" ? "video" : "audio"))) throw new Error("The completed file failed playback validation");
+      if (!(Number(probe.format?.duration) > 0) || !probe.streams?.some(stream => stream.codec_type === "audio")) throw new Error("The completed file failed playback validation");
       const metadataFile = join(directory, "payload.info.json");
       const metadata = existsSync(metadataFile) ? JSON.parse(readFileSync(metadataFile, "utf8")) as { title?: string } : {};
       const finalName = `${row.key}.${filename.split(".").pop()}`;
       renameSync(join(directory, filename), join(this.cacheDir, finalName));
       this.db.prepare("UPDATE media_assets SET status='ready',title=?,filename=?,bytes=?,progress=100,error=NULL,updated_at=? WHERE key=?").run(metadata.title ?? "", finalName, size, Date.now(), row.key);
-      const table = row.kind === "audio" ? "background_tracks" : "media_items";
-      this.db.prepare(`UPDATE ${table} SET title=? WHERE youtube_url=? AND (title='' OR title=youtube_url)`).run(metadata.title ?? "", row.source_url);
+      this.db.prepare("UPDATE background_tracks SET title=? WHERE youtube_url=? AND (title='' OR title=youtube_url)").run(metadata.title ?? "", row.source_url);
       this.onEvent({ type: "library" });
     } catch (error) { this.fail("media_assets", row.key, row.attempts + 1, exceeded ? new Error("Media preparation exceeded the disk/cache limit. Free disk space or increase the configured cache.") : error); }
     finally { if (monitor) clearInterval(monitor); this.progress.delete(row.key); this.removeWorkDirectory(directory); this.emit(row.key); }

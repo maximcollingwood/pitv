@@ -2,6 +2,7 @@
 #include "Controller.h"
 #include "Fonts.h"
 #include "MediaEngine.h"
+#include "MpvVideo.h"
 #include "QrProvider.h"
 #include <QCursor>
 #include <QGuiApplication>
@@ -9,22 +10,18 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
-#include <QRunnable>
 #include <QThread>
 #include <QTimer>
 #include <QImage>
 #include <QDebug>
-#include <functional>
+#include <clocale>
+#include <memory>
 
-class RenderJob final : public QRunnable {
-public:
-    explicit RenderJob(std::function<void()> fn) : fn_(std::move(fn)) {}
-    void run() override { fn_(); }
-private:
-    std::function<void()> fn_;
-};
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
+    // libmpv parses numbers itself and refuses to start under a locale with
+    // another decimal separator; Qt has just applied the system's.
+    std::setlocale(LC_NUMERIC, "C");
     QCoreApplication::setApplicationName("pitv-native");
     QCoreApplication::setOrganizationName("PiTV");
     // A TV shows no pointer. A plugged-in mouse still works (moving it wakes the
@@ -35,18 +32,15 @@ int main(int argc, char **argv) {
     const bool verifyPlayback = args.contains("--verify-playback");
     const bool fullscreen = !args.contains("--windowed") && !smoke && !verifyPlayback;
     auto argument = [&args](const QString &name) { int i = args.indexOf(name); return i >= 0 && i + 1 < args.size() ? args[i + 1] : QString(); };
-    gst_init(nullptr, nullptr);
-    GstElement *sink = nullptr;
-    if (!smoke) {
-        QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
-        // Creating the plugin before loading QML registers its Qt6 item type.
-        sink = gst_element_factory_make("qml6glsink", nullptr);
-        if (!sink) { qCritical() << "qml6glsink is missing. Install gstreamer1.0-qt6."; return 2; }
-        gst_object_ref_sink(sink);
-    }
+    // libmpv draws the video with OpenGL into the Qt Quick scene.
+    if (!smoke) QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+    qmlRegisterType<MpvVideo>("PiTV", 1, 0, "MpvVideo");
+    auto *player = MediaEngine::createPlayer(true);
+    if (!player && !smoke) { qCritical() << "The video player could not start. Install libmpv."; return 2; }
+    MpvVideo::setPlayer(player);
     Controller controller;
     QThread mediaThread;
-    auto *media = new MediaEngine(sink);
+    auto *media = new MediaEngine(player);
     media->moveToThread(&mediaThread);
     QObject::connect(&mediaThread, &QThread::started, media, &MediaEngine::initialize);
     QObject::connect(&mediaThread, &QThread::finished, media, &QObject::deleteLater);
@@ -70,36 +64,34 @@ int main(int argc, char **argv) {
     QObject::connect(&controller, &Controller::oneTouchPlay, &cec, &Cec::oneTouchPlay);
     QObject::connect(&controller, &Controller::standbyTv, &cec, &Cec::standbyTv);
     QObject::connect(&controller, &Controller::tvChanged, &cec, [&cec, &controller] { cec.setAsleep(controller.tvAsleep()); });
-    QQmlApplicationEngine engine;
+    auto engine = std::make_unique<QQmlApplicationEngine>();
     Fonts::load();
-    engine.rootContext()->setContextProperty("brandFonts", Fonts::families());
-    engine.rootContext()->setContextProperty("kiosk", &controller);
-    engine.rootContext()->setContextProperty("videoEnabled", !smoke);
-    engine.rootContext()->setContextProperty("startFullscreen", fullscreen);
-    engine.addImageProvider("qr", new QrProvider);
+    engine->rootContext()->setContextProperty("brandFonts", Fonts::families());
+    engine->rootContext()->setContextProperty("kiosk", &controller);
+    engine->rootContext()->setContextProperty("videoEnabled", !smoke);
+    engine->rootContext()->setContextProperty("startFullscreen", fullscreen);
+    engine->addImageProvider("qr", new QrProvider);
     bool qmlWarnings = false;
-    QObject::connect(&engine, &QQmlEngine::warnings, &app, [&qmlWarnings](const QList<QQmlError> &errors) {
+    QObject::connect(engine.get(), &QQmlEngine::warnings, &app, [&qmlWarnings](const QList<QQmlError> &errors) {
         qmlWarnings = true; for (const auto &error : errors) qWarning().noquote() << error.toString();
     });
     controller.start(argument("--fixture"));
     // Development: PITV_QML_DIR loads QML from disk, so UI edits need only a restart.
     const auto qmlDir = qEnvironmentVariable("PITV_QML_DIR");
-    engine.load(qmlDir.isEmpty() ? QUrl("qrc:/qml/Main.qml") : QUrl::fromLocalFile(qmlDir + "/Main.qml"));
-    auto *window = engine.rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
-    if (!window) {
+    engine->load(qmlDir.isEmpty() ? QUrl("qrc:/qml/Main.qml") : QUrl::fromLocalFile(qmlDir + "/Main.qml"));
+    auto *window = engine->rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine->rootObjects().first());
+    // The video item frees mpv's renderer as it goes, which must happen before the
+    // players themselves are destroyed.
+    auto shutdown = [&] {
+        engine.reset();
         QMetaObject::invokeMethod(media, &MediaEngine::shutdown, Qt::BlockingQueuedConnection);
-        mediaThread.quit(); mediaThread.wait(); if (sink) gst_object_unref(sink); return 3;
-    }
-    if (sink) {
-        auto *surface = window->findChild<QQuickItem *>("videoSurface");
+        mediaThread.quit(); mediaThread.wait();
+    };
+    if (!window) { shutdown(); return 3; }
+    if (!smoke) {
+        auto *surface = window->findChild<MpvVideo *>("videoSurface");
         if (!surface) { qCritical() << "Video surface did not load."; QTimer::singleShot(0, &app, [&app] { app.exit(4); }); }
-        else {
-            g_object_set(sink, "widget", surface, nullptr);
-            window->scheduleRenderJob(new RenderJob([sink, media] {
-                const bool ok = gst_element_set_state(sink, GST_STATE_READY) != GST_STATE_CHANGE_FAILURE;
-                QMetaObject::invokeMethod(media, [media, ok] { media->videoReady(ok); }, Qt::QueuedConnection);
-            }), QQuickWindow::BeforeSynchronizingStage);
-        }
+        else QObject::connect(surface, &MpvVideo::outputReady, media, &MediaEngine::videoReady);
     }
     if (smoke || verifyPlayback) {
         const QString screenshot = argument("--screenshot");
@@ -121,7 +113,7 @@ int main(int argc, char **argv) {
             }
             controller.openIndex(item);
         }
-        if (args.contains("--simulate-error")) controller.mediaState(true, false, 0, 0, "Audio output is unavailable. Check the TV connection and try again.");
+        if (args.contains("--simulate-error")) for (int i = 0; i < 4; ++i) controller.mediaState(true, false, false, 0, 0, "Audio output is unavailable. Check the TV connection and try again.");
         auto finish = [&, screenshot] {
             const auto frame = window->grabWindow();
             if (!screenshot.isEmpty() && !frame.save(screenshot)) { qCritical() << "Could not save screenshot"; app.exit(5); return; }
@@ -147,7 +139,7 @@ int main(int argc, char **argv) {
             app.exit(qmlWarnings ? 6 : 0);
         };
         if (verifyPlayback) {
-            QObject::connect(media, &MediaEngine::status, &app, [&, finish](bool video, bool playing, double position, double duration, const QString &error) {
+            QObject::connect(media, &MediaEngine::status, &app, [&, finish](bool video, bool playing, bool, double position, double duration, const QString &error) {
                 if (!video) return;
                 if (!error.isEmpty()) { qCritical().noquote() << "Playback verification failed:" << error; app.exit(8); }
                 else if (playing && position >= 1 && duration > 1) finish();
@@ -156,8 +148,6 @@ int main(int argc, char **argv) {
         } else QTimer::singleShot(1400, &app, finish);
     }
     int result = app.exec();
-    QMetaObject::invokeMethod(media, &MediaEngine::shutdown, Qt::BlockingQueuedConnection);
-    mediaThread.quit(); mediaThread.wait();
-    if (sink) { gst_element_set_state(sink, GST_STATE_NULL); gst_object_unref(sink); }
+    shutdown();
     return result;
 }

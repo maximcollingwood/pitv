@@ -1,5 +1,5 @@
 ---
-# PiTV runs a native Qt/GStreamer television application and a web phone companion.
+# PiTV runs a native Qt/libmpv television application and a web phone companion.
 nodejs_major: 22
 backend_user: pitv
 workspace_root: /opt/pitv
@@ -10,7 +10,8 @@ db_dir: /var/lib/pitv
 db_path: "{{ db_dir }}/library.db"
 backend_port: 3000
 
-# Pin the importer separately; update and re-provision when YouTube changes.
+# The oldest yt-dlp the device accepts. Videos stream through it, so the device
+# installs newer releases daily (media-tools role) as YouTube changes.
 yt_dlp_version: "2026.08.19"
 media_tools_root: /opt/pitv-media-tools
 media_cache_limit_mb: 4096

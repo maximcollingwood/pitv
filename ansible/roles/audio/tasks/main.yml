@@ -1,5 +1,5 @@
 ---
-# Pi OS Lite ships no audio server. Native GStreamer uses the PulseAudio API.
+# Pi OS Lite ships no audio server. The TV app's players (libmpv) use the PulseAudio API.
 # Install PipeWire + the PulseAudio compatibility layer (which is what the native player
 # talks to) + WirePlumber as the session manager. The kiosk user's PAM/login
 # session (PAMName=login) auto-starts the user-level PipeWire on next start.
@@ -7,7 +7,7 @@
   ansible.builtin.apt:
     name:
       - pipewire           # core audio server
-      - pipewire-pulse     # PulseAudio API shim — used by GStreamer pulsesink
+      - pipewire-pulse     # PulseAudio API shim — used by the TV app's players
       - wireplumber        # PipeWire session manager (sink/source policy)
       - pipewire-alsa      # ALSA → PipeWire bridge for ALSA clients
       - alsa-utils         # aplay / speaker-test for diagnostics

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Copy a Pi's library into the Vagrant development VM: the content database,
-# uploaded images and prepared media, so the VM's TV and phone UIs show real
+# uploaded images and downloaded background music, so the VM's TV and phone UIs show real
 # content. The Pi is only read; the VM's previous database is kept as a backup.
 #
 # Usage (from the repo, with the VM running):
 #   bash tools/pull-pi-content.sh [--no-media] [user@host]
 # Defaults to pitv@raspberrypi.local. The SSH user needs passwordless sudo
 # (the Raspberry Pi OS default). PITV_SSH_KEY selects a key file.
-# --no-media skips the video/audio cache; those items then show as needing a
-# download in the VM.
+# --no-media skips the music files; those tracks then download again in the VM.
+# (Videos stream, so there are none to copy.)
 set -euo pipefail
 
 media=1

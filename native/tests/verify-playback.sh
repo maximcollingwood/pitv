@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Exercise the real Qt OpenGL + GStreamer + PipeWire path with generated media.
+# Exercise the real Qt OpenGL + libmpv + PipeWire path with generated media: a
+# picture-only and a sound-only file, played together as a YouTube stream is.
 # Usage: bash native/tests/verify-playback.sh build/pitv-native [screenshot.png]
 set -euo pipefail
 
@@ -49,20 +50,18 @@ done
 pactl load-module module-null-sink sink_name=pitv_test >/dev/null
 export PITV_AUDIO_DEVICE=pitv_test
 
-ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=640x360:rate=30 \
-  -f lavfi -i sine=frequency=440:sample_rate=48000 -t 6 -c:v libx264 -preset ultrafast \
-  -threads 1 -pix_fmt yuv420p -c:a aac -movflags +faststart "$test_dir/clip.mp4"
+ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=640x360:rate=30 -t 6 -c:v libx264 \
+  -preset ultrafast -threads 1 -pix_fmt yuv420p -an -movflags +faststart "$test_dir/picture.mp4"
+ffmpeg -hide_banner -loglevel error -f lavfi -i sine=frequency=440:sample_rate=48000 -t 6 -c:a aac \
+  "$test_dir/sound.m4a"
 python3 - "$fixture_source" "$test_dir" <<'PY'
 import json, pathlib, sys
-fixture = json.loads(pathlib.Path(sys.argv[1]).read_text())
+fixture = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
 root = pathlib.Path(sys.argv[2])
 source = fixture['items']['3'][0]['youtube_url']
-fixture['_assets']['video:' + source] = {
-    'key': 'generated-playback-test', 'sourceUrl': source, 'kind': 'video',
-    'status': 'ready', 'title': 'Generated video and audio verification',
-    'playbackUrl': (root / 'clip.mp4').as_uri(), 'progress': 100, 'error': None,
-}
-(root / 'library.json').write_text(json.dumps(fixture))
+# Where the server would say the video streams from.
+fixture.setdefault('_streams', {})[source] = {'video': (root / 'picture.mp4').as_uri(), 'audio': (root / 'sound.m4a').as_uri()}
+(root / 'library.json').write_text(json.dumps(fixture), encoding='utf-8')
 PY
 mkdir -p "$(dirname "$screenshot")"
 # Capture the private sink's monitor to prove the audio stream carries samples,

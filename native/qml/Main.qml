@@ -146,6 +146,10 @@ Window {
         }
     }
 
+    // The video is drawn at the screen's own resolution, outside the scaled scene.
+    // It stays in the scene, transparent, so mpv can draw the moment a video opens.
+    Loader { id: video; anchors.fill: parent; active: videoEnabled; source: "VideoSurface.qml"; opacity: scene.player ? 1 : 0 }
+
     Item {
         id: scene
         width: 1600; height: 900
@@ -168,8 +172,7 @@ Window {
             else if (event.key === Qt.Key_M) { kiosk.openBackground(); event.accepted = true }
             else if (event.key === Qt.Key_D) { kiosk.toggleDark(); event.accepted = true }
         }
-        Rectangle { anchors.fill: parent; color: theme.canvas }
-        Loader { id: video; anchors.fill: parent; active: videoEnabled; source: "VideoSurface.qml"; visible: scene.player }
+        Rectangle { anchors.fill: parent; color: theme.canvas; visible: !scene.player }
 
         Item {
             id: header
@@ -426,10 +429,19 @@ Window {
             Column {
                 anchors.centerIn: parent; width: 1080; spacing: 28; visible: kiosk.mediaStatus !== "ready" || kiosk.mediaError.length > 0
                 Heading { anchors.horizontalCenter: parent.horizontalCenter; text: kiosk.mediaError ? "Playback needs attention" : "Getting your video ready"; color: theme.cream0; font.pixelSize: 44 }
-                Label { width: parent.width; text: kiosk.mediaError || (kiosk.mediaStatus === "downloading" ? "Downloading a local copy · " + Math.round(kiosk.progress) + "%" : "Preparing a local copy for reliable playback."); horizontalAlignment: Text.AlignHCenter; color: "#B4A3C2"; font.pixelSize: 26; wrapMode: Text.WordWrap }
-                Rectangle { visible: !kiosk.mediaError; width: 700; height: 8; anchors.horizontalCenter: parent.horizontalCenter; radius: 4; color: "#43205F"
-                    Rectangle { width: parent.width * kiosk.progress / 100; height: parent.height; radius: 4; gradient: theme.gold } }
+                Label { width: parent.width; text: kiosk.mediaError || (kiosk.mediaStatus === "resolving" ? "Finding the video on YouTube…" : "Starting the video…"); horizontalAlignment: Text.AlignHCenter; color: "#B4A3C2"; font.pixelSize: 26; wrapMode: Text.WordWrap }
+                // A gold band sweeps along while the video starts.
+                Rectangle { id: track; visible: !kiosk.mediaError; width: 700; height: 8; anchors.horizontalCenter: parent.horizontalCenter; radius: 4; color: "#43205F"; clip: true
+                    Rectangle { id: sweep; x: -width; width: 180; height: parent.height; radius: 4; gradient: theme.gold }
+                    NumberAnimation { target: sweep; property: "x"; from: -sweep.width; to: track.width; duration: 1400; loops: Animation.Infinite; easing.type: Easing.InOutQuad
+                        running: kiosk.page === "player" && kiosk.mediaStatus !== "ready" && !kiosk.mediaError } }
                 Label { visible: !!kiosk.mediaError; anchors.horizontalCenter: parent.horizontalCenter; text: "Press Select to retry, or Back to return to the library."; color: theme.gold600; font.pixelSize: 22 }
+            }
+            // Over a playing video: waiting for the network, or reconnecting.
+            Rectangle {
+                anchors.centerIn: parent; height: 64; width: note.implicitWidth + 72; radius: 32; color: "#D9160428"
+                visible: kiosk.mediaStatus === "ready" && kiosk.mediaNote.length > 0 && !kiosk.mediaError
+                Label { id: note; anchors.centerIn: parent; text: kiosk.mediaNote; color: theme.cream0; font.pixelSize: 24; font.weight: Font.Medium }
             }
             Rectangle {
                 x: 0; y: 0; width: parent.width; height: 140
