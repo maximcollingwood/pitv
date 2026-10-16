@@ -244,6 +244,22 @@ installs each new release daily and goes back if one does not start.
 internet; when YouTube or the connection is down, the TV says so and the rest of
 the library still works.
 
+## Channels and live streams
+
+A video section can also hold YouTube channels. Paste a channel's link
+(`youtube.com/@name`, from any of its tabs) and the TV shows the channel's page:
+"● Live now" first while it is streaming, then its latest 30 videos, then its
+playlists. The lists come from yt-dlp's quick listing of the channel's tabs (about a
+second each) and are read again after an hour; whether the channel is live is read
+again every 90 seconds while someone has the page open.
+
+Paste a channel's live link (`youtube.com/@name/live`) for a tile that tunes straight
+in to whatever the channel is streaming; when nothing is on, the TV says so and
+Select checks again. Live streams come as YouTube's HLS playlist, read straight from
+YouTube (their pieces are small, so they are not held back); the player picks the
+best H.264 quality up to 1080p at 30 frames per second and shows a red LIVE badge in
+place of the time bar. A broadcast that ends says so.
+
 ## Background music
 
 Background tracks are downloaded so the music plays without internet. The worker

@@ -23,8 +23,8 @@ public slots:
     // The video item can show mpv's pictures; videos wait for it.
     void videoReady(bool success);
     // source: "url", optional "audio" (the sound, when it streams separately),
-    // "start" (seconds), and "userAgent" and "headers" for a stream opened at
-    // YouTube directly (a live video).
+    // "start" (seconds), and for a live stream opened at YouTube directly
+    // "userAgent", "headers" and "hlsBitrate" (the quality to pick).
     void load(const QVariantMap &source, bool video);
     void stop(bool video);
     void setPaused(bool paused, bool video);

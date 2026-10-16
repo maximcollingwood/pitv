@@ -33,6 +33,8 @@ Window {
         // Small caps labels: gold reads on purple, but is too faint on cream.
         readonly property color label: dark ? gold600 : purple700
         readonly property color onGold: purple900
+        // YouTube's live red, for streams on air now.
+        readonly property color live: "#FF4E45"
         readonly property Gradient gold: Gradient {
             orientation: Gradient.Horizontal
             GradientStop { position: 0; color: theme.gold600 }
@@ -290,7 +292,7 @@ Window {
         }
         Item {
             id: browse
-            visible: ["section", "category", "playlist", "background"].indexOf(kiosk.page) >= 0
+            visible: ["section", "category", "playlist", "channel", "background"].indexOf(kiosk.page) >= 0
             x: 64; y: 144; width: 1472; height: 644
             property bool faq: kiosk.sectionType === "faq" && kiosk.page === "section"
             Heading { text: kiosk.heading; font.pixelSize: 44; width: parent.width - 280; elide: Text.ElideRight }
@@ -312,7 +314,10 @@ Window {
                     Column {
                         x: 81; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 140; spacing: 8
                         Label { width: parent.width; text: scene.label(modelData); color: row.focused ? theme.onGold : theme.heading; font.pixelSize: browse.faq ? 23 : 27; font.weight: Font.DemiBold; wrapMode: Text.WordWrap; maximumLineCount: browse.faq ? 2 : 1; elide: Text.ElideRight }
-                        Label { visible: kiosk.sectionType === "catalog" || modelData.count !== undefined; width: parent.width; text: modelData.count !== undefined ? modelData.count + " videos & playlists" : (modelData.author || "") + (modelData.year ? " · " + modelData.year : "") + (modelData.category ? "  /  " + modelData.category : ""); color: row.focused ? theme.onGold : theme.muted; font.pixelSize: 18; elide: Text.ElideRight }
+                        // A video's length, "Playlist", "YouTube channel", or a live stream in red.
+                        Label { visible: kiosk.sectionType === "catalog" || modelData.count !== undefined || modelData.detail !== undefined; width: parent.width
+                            text: modelData.detail !== undefined ? modelData.detail : modelData.count !== undefined ? modelData.count + " videos & playlists" : (modelData.author || "") + (modelData.year ? " · " + modelData.year : "") + (modelData.category ? "  /  " + modelData.category : "")
+                            color: row.focused ? theme.onGold : (modelData.live ? theme.live : theme.muted); font.pixelSize: 18; font.weight: modelData.live ? Font.DemiBold : Font.Normal; elide: Text.ElideRight }
                     }
                     Glyph { anchors.right: parent.right; anchors.rightMargin: 28; anchors.verticalCenter: parent.verticalCenter; text: ""; font.pixelSize: 20; color: row.focused ? theme.onGold : theme.gold600 }
                     MouseArea { anchors.fill: parent; onClicked: kiosk.openIndex(index) }
@@ -428,14 +433,14 @@ Window {
             Rectangle { anchors.fill: parent; color: "#1B0532"; visible: kiosk.mediaStatus !== "ready" || kiosk.mediaError.length > 0 }
             Column {
                 anchors.centerIn: parent; width: 1080; spacing: 28; visible: kiosk.mediaStatus !== "ready" || kiosk.mediaError.length > 0
-                Heading { anchors.horizontalCenter: parent.horizontalCenter; text: kiosk.mediaError ? "Playback needs attention" : "Getting your video ready"; color: theme.cream0; font.pixelSize: 44 }
+                Heading { anchors.horizontalCenter: parent.horizontalCenter; text: kiosk.mediaStatus === "offair" ? "Not live right now" : kiosk.mediaError ? "Playback needs attention" : "Getting your video ready"; color: theme.cream0; font.pixelSize: 44 }
                 Label { width: parent.width; text: kiosk.mediaError || (kiosk.mediaStatus === "resolving" ? "Finding the video on YouTube…" : "Starting the video…"); horizontalAlignment: Text.AlignHCenter; color: "#B4A3C2"; font.pixelSize: 26; wrapMode: Text.WordWrap }
                 // A gold band sweeps along while the video starts.
                 Rectangle { id: track; visible: !kiosk.mediaError; width: 700; height: 8; anchors.horizontalCenter: parent.horizontalCenter; radius: 4; color: "#43205F"; clip: true
                     Rectangle { id: sweep; x: -width; width: 180; height: parent.height; radius: 4; gradient: theme.gold }
                     NumberAnimation { target: sweep; property: "x"; from: -sweep.width; to: track.width; duration: 1400; loops: Animation.Infinite; easing.type: Easing.InOutQuad
                         running: kiosk.page === "player" && kiosk.mediaStatus !== "ready" && !kiosk.mediaError } }
-                Label { visible: !!kiosk.mediaError; anchors.horizontalCenter: parent.horizontalCenter; text: "Press Select to retry, or Back to return to the library."; color: theme.gold600; font.pixelSize: 22 }
+                Label { visible: !!kiosk.mediaError; anchors.horizontalCenter: parent.horizontalCenter; text: kiosk.mediaStatus === "offair" ? "Press Select to check again, or Back to return to the library." : "Press Select to retry, or Back to return to the library."; color: theme.gold600; font.pixelSize: 22 }
             }
             // Over a playing video: waiting for the network, or reconnecting.
             Rectangle {
@@ -456,11 +461,14 @@ Window {
                 opacity: playback.controlsShown ? 1 : 0; visible: opacity > 0
                 Behavior on opacity { NumberAnimation { duration: 300 } }
                 gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: "#F0160428" } }
-                Rectangle { x: 64; y: 62; width: 1472; height: 5; radius: 3; color: "#4DFFFBF1"
+                Rectangle { visible: !kiosk.live; x: 64; y: 62; width: 1472; height: 5; radius: 3; color: "#4DFFFBF1"
                     Rectangle { width: parent.width * (kiosk.duration > 0 ? kiosk.position / kiosk.duration : 0); height: parent.height; radius: 3; gradient: theme.gold } }
                 Row { x: 64; y: 90; spacing: 24
                     Pill { primary: true; glyph: kiosk.playing ? "" : ""; label: kiosk.playing ? "Pause" : "Play"; onClicked: kiosk.action("select") }
-                    Label { anchors.verticalCenter: parent.verticalCenter; text: kiosk.clockText(kiosk.position) + "  /  " + kiosk.clockText(kiosk.duration); color: theme.cream0; font.pixelSize: 20; font.weight: Font.Medium }
+                    Label { visible: !kiosk.live; anchors.verticalCenter: parent.verticalCenter; text: kiosk.clockText(kiosk.position) + "  /  " + kiosk.clockText(kiosk.duration); color: theme.cream0; font.pixelSize: 20; font.weight: Font.Medium }
+                    // A live stream has no length: a red LIVE badge instead.
+                    Rectangle { visible: kiosk.live; anchors.verticalCenter: parent.verticalCenter; width: liveLabel.implicitWidth + 28; height: 32; radius: 6; color: theme.live
+                        Label { id: liveLabel; anchors.centerIn: parent; text: "LIVE"; color: "white"; font.pixelSize: 17; font.weight: Font.Bold; font.letterSpacing: 1.5 } }
                 }
                 Row { anchors.right: parent.right; anchors.rightMargin: 64; y: 102; spacing: 30
                     Hint { glyph: ""; text: "Seek"; tint: "#D9FFFBF1" }

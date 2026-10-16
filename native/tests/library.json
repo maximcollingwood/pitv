@@ -25,7 +25,9 @@
     "3": [
       {"id": 301, "title": "An introduction to meditation", "category": "General", "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk", "is_playlist": 0},
       {"id": 302, "title": "Evening reflections", "category": "General", "youtube_url": "https://www.youtube.com/playlist?list=PLfixture123", "is_playlist": 1},
-      {"id": 303, "title": "Music for a quiet afternoon", "category": "Music", "youtube_url": "https://www.youtube.com/watch?v=lmnopqrstuv", "is_playlist": 0}
+      {"id": 303, "title": "Music for a quiet afternoon", "category": "Music", "youtube_url": "https://www.youtube.com/watch?v=lmnopqrstuv", "is_playlist": 0},
+      {"id": 304, "title": "Temple channel", "category": "YouTube channels", "youtube_url": "https://www.youtube.com/@templechannel", "is_playlist": 0, "kind": "channel"},
+      {"id": 305, "title": "Temple channel · Live", "category": "YouTube channels", "youtube_url": "https://www.youtube.com/@templechannel/live", "is_playlist": 0, "kind": "live"}
     ],
     "4": [{"id": 401, "title": "The art of a thoughtful life", "author": "The Library Collection", "year": 2024, "category": "Reflection", "description": "A collection of short reflections on kindness, attention, and everyday life.\n\nFind this book on the main library shelf. Ask a volunteer if you would like help choosing your next read."}],
     "5": [
@@ -39,5 +41,9 @@
   "_assets": {
     "audio:https://www.youtube.com/watch?v=123456789ab": {"key": "audio-fixture", "sourceUrl": "https://www.youtube.com/watch?v=123456789ab", "kind": "audio", "status": "ready", "title": "Quiet morning", "playbackUrl": "/api/media/audio-fixture/file", "progress": 100, "error": null}
   },
-  "_playlists": {"PLfixture123": {"status": "ready", "source": "cache", "videos": [{"id": "abcdefghijk", "title": "Reflection one"}, {"id": "lmnopqrstuv", "title": "Reflection two"}]}}
+  "_playlists": {"PLfixture123": {"status": "ready", "source": "cache", "videos": [{"id": "abcdefghijk", "title": "Reflection one"}, {"id": "lmnopqrstuv", "title": "Reflection two"}]}},
+  "_channels": {"https://www.youtube.com/@templechannel": {"url": "https://www.youtube.com/@templechannel", "title": "Temple channel", "status": "ready", "error": null,
+    "live": [{"id": "livelivelve", "title": "Morning arati, live", "duration": null}],
+    "videos": [{"id": "abcdefghijk", "title": "Sunday talk", "duration": 3725}, {"id": "lmnopqrstuv", "title": "Kirtan", "duration": 610}],
+    "playlists": [{"id": "PLfixture123", "title": "Evening reflections"}]}}
 }

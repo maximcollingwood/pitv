@@ -29,11 +29,14 @@ class Controller final : public QObject {
     // Guest Wi-Fi as a "WIFI:" QR payload phone cameras offer to join; empty when unset.
     Q_PROPERTY(QString wifiCode READ wifiCode NOTIFY libraryChanged)
     Q_PROPERTY(QString notice READ notice NOTIFY viewChanged)
-    // The video: "resolving" (looked up at YouTube), "loading", "ready" or "error".
+    // The video: "resolving" (looked up at YouTube), "loading", "ready", "error", or
+    // "offair" (a channel's live stream that is not on).
     Q_PROPERTY(QString mediaStatus READ mediaStatus NOTIFY playbackChanged)
     Q_PROPERTY(QString mediaError READ mediaError NOTIFY playbackChanged)
     // Shown over a playing video: "Buffering…" or "Reconnecting…".
     Q_PROPERTY(QString mediaNote READ mediaNote NOTIFY playbackChanged)
+    // A live stream: no length to show or reach the end of.
+    Q_PROPERTY(bool live READ live NOTIFY playbackChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playbackChanged)
     Q_PROPERTY(double position READ position NOTIFY playbackChanged)
     Q_PROPERTY(double duration READ duration NOTIFY playbackChanged)
@@ -64,6 +67,7 @@ public:
     QString mediaStatus() const { return video_.status; }
     QString mediaError() const { return video_.error; }
     QString mediaNote() const { return video_.note; }
+    bool live() const { return video_.live; }
     bool playing() const { return playing_; }
     double position() const { return position_; }
     double duration() const { return duration_; }
@@ -126,15 +130,15 @@ signals:
     // Restart the HDMI sound output, so a TV that just came on gets a fresh stream.
     void restartAudio();
 private:
-    struct View { QString page = "home", heading, type, section, category, playlist; QVariantMap item; int selected = 0; };
+    struct View { QString page = "home", heading, type, section, category, playlist, channel; QVariantMap item; int selected = 0; };
     // Background music, downloaded to the device by the server.
     struct Preparation { QString source, error, loaded; QJsonObject asset; int generation = 0; bool pending = false; };
     // The video, streamed from YouTube through the server. resumeAt: where a
     // reopened stream starts. failures: reconnections since it last played well.
-    struct Stream { QString source, status, error, note; double resumeAt = 0; int generation = 0, failures = 0; };
+    struct Stream { QString source, status, error, note; double resumeAt = 0; int generation = 0, failures = 0; bool live = false; };
     QNetworkAccessManager network_;
     QUrl base_;
-    QJsonObject library_, cachedAssets_, playlists_, fixtureStreams_;
+    QJsonObject library_, cachedAssets_, playlists_, channels_, fixtureStreams_;
     QVariantList entries_;
     QVariantMap current_;
     View view_;
@@ -150,7 +154,7 @@ private:
     QByteArray cacheSaved_;
     std::atomic<int> cacheGeneration_{0};
     bool connected_ = false, fixture_ = false, snapshotPending_ = false, snapshotAgain_ = false;
-    bool playing_ = false, backgroundPlaying_ = false, backgroundDesired_ = false, playlistPending_ = false;
+    bool playing_ = false, backgroundPlaying_ = false, backgroundDesired_ = false, playlistPending_ = false, channelPending_ = false;
     int retryDelay_ = 1000, backgroundTrack_ = -1;
     QString zone_ = "content";
     int chromeIndex_ = 0;
@@ -178,6 +182,7 @@ private:
     void rebuild();
     void openItem(const QVariantMap &item);
     void fetchPlaylist(bool retry = false);
+    void fetchChannel(bool refresh = false);
     void playVideo(const QString &url);
     void openStream(bool fresh);
     void startStream(const QJsonObject &stream);

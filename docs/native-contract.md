@@ -19,6 +19,11 @@ The phone remains a web client. The native process defaults to
 }
 ```
 
+Each item of a `media` section carries `kind`: what its link opens on the TV.
+`video`, `playlist`, `channel` (a YouTube channel's page, from `youtube.com/@name`,
+`/channel/UC…`, `/c/…` or `/user/…`) or `live` (a channel's live address,
+`…/live`, which plays whatever the channel is streaming).
+
 `GET /api/device/events` is a persistent, unbuffered SSE connection. All messages
 use ordinary `data:` frames containing one of:
 
@@ -55,16 +60,21 @@ first time, cached until its addresses near expiry; `fresh=1` looks it up again
 after playback failed) and returns:
 
 ```json
-{"id":"dQw4w9WgXcQ","title":"…","duration":1755,"live":false,"video":"/api/stream/dQw4w9WgXcQ/video","audio":"/api/stream/dQw4w9WgXcQ/audio","userAgent":null,"headers":{}}
+{"id":"dQw4w9WgXcQ","title":"…","duration":1755,"live":false,"video":"/api/stream/dQw4w9WgXcQ/video","audio":"/api/stream/dQw4w9WgXcQ/audio","userAgent":null,"headers":{},"hlsBitrate":null}
 ```
 
 `video` is the picture (or picture and sound together), `audio` the separate sound
 or null. Relative URLs are the relay: `GET|HEAD /api/stream/:id/video|audio` serves
 the stream with HTTP range support, fetching from YouTube in 8 MB pieces (YouTube
 throttles longer requests) and looking an expired address up again mid-stream. A
-live video's `video` is YouTube's own HLS address, opened with `userAgent` and
-`headers`. Failures are `{error}` with 400 (not a YouTube video), 502 (YouTube
-refused or is unreachable; the message is YouTube's, made readable) or 404.
+live stream's `video` is YouTube's own master HLS playlist (picture and sound
+together, every quality), opened with `userAgent` and `headers`; the player picks
+the best quality up to `hlsBitrate` (the H.264 one chosen at 1080p30 or below) and
+starts where the broadcast is now. A channel's live address (`…/@name/live`) resolves
+to its current stream. Failures are `{error, code}` with 400 (not a YouTube video),
+502 (YouTube refused or is unreachable; the message is YouTube's, made readable) or
+404; `code: "offair"` is a channel's live address while it is not streaming, or a
+broadcast that has not started.
 
 `POST /api/stream/warm {url}` looks a video up in the background (202), so it starts
 at once when chosen; the TV sends it for the highlighted video. The native player
@@ -72,6 +82,23 @@ plays `video` and `audio` together, resolves relative URLs against PITV_API_URL,
 reopens a failed stream with `fresh=1` where it stopped (three times before showing
 the error with a retry action), and treats a stream that buffers for 25 seconds as
 failed. Saving a video link looks it up in the background to fill a missing title.
+
+## Channels
+
+`GET /api/channel?url=channel URL[&refresh=1]` answers at once with what is known of
+a channel and reads it again in the background when that is old (its lists after an
+hour, whether it is live after 90 seconds; `refresh=1` reads it all again):
+
+```json
+{"url":"https://www.youtube.com/@name","title":"…","status":"loading|ready|error","error":null,"updatedAt":0,
+ "live":[{"id":"…","title":"…","duration":null}],"videos":[{"id":"…","title":"…","duration":3725}],"playlists":[{"id":"PL…","title":"…"}]}
+```
+
+`live` lists streams on air now, `videos` the latest 30 uploads, `playlists` up to 30.
+The TV shows them in that order on the channel's page, polls while it is `loading`
+and asks again every minute while the page is open. Saving a channel or live link
+reads the channel to fill a missing title (the channel's name, and "name · Live"
+for its live address).
 
 ## Background music
 

@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { basename, dirname, resolve } from "node:path";
 import { openDatabase } from "./database.js";
 import { MediaManager, type MediaOptions } from "./media.js";
-import { normalizeYouTube } from "./youtube.js";
+import { linkKind, normalizeYouTube } from "./youtube.js";
+import { ChannelDirectory, type ChannelOptions } from "./channels.js";
 import { EventStream } from "./events.js";
 import { sendFile } from "./http-files.js";
 import { StreamError, StreamResolver, type StreamOptions } from "./streams.js";
@@ -15,7 +16,7 @@ import { TvControl, TvError, type TvOptions, type TvVolume } from "./tv.js";
 
 export interface AppOptions {
   dbPath?: string; uploadsDir?: string; adminPin?: string; seed?: boolean;
-  logger?: boolean; startWorker?: boolean; media?: Partial<MediaOptions>; streams?: StreamOptions; system?: Partial<SystemOptions>; tv?: Partial<TvOptions>;
+  logger?: boolean; startWorker?: boolean; media?: Partial<MediaOptions>; streams?: StreamOptions; channels?: ChannelOptions; system?: Partial<SystemOptions>; tv?: Partial<TvOptions>;
 }
 const SECTION_TYPES: Record<string, { table: string; columns: string[]; orderBy: string }> = {
   articles: { table: "articles", columns: ["title", "body", "position"], orderBy: "position, title" },
@@ -65,6 +66,15 @@ export function createApp(options: AppOptions = {}) {
       options.streams?.onResolved?.(url, title);
     },
   });
+  // A channel's name fills in an unnamed channel item, and "· Live" one for its live stream.
+  const channels = new ChannelDirectory({
+    ...options.channels,
+    onTitle: (url, title) => {
+      const statement = db.prepare("UPDATE media_items SET title=? WHERE youtube_url=? AND (title='' OR title=youtube_url)");
+      if (statement.run(title, url).changes + statement.run(`${title} · Live`, `${url}/live`).changes) invalidate();
+      options.channels?.onTitle?.(url, title);
+    },
+  });
   const loopback = (ip: string) => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(ip);
   const getSection = (id: string | number) => db.prepare("SELECT * FROM sections WHERE id=?").get(id) as Section | undefined;
   const getSettings = (): Record<string, string> => Object.fromEntries((db.prepare("SELECT key,value FROM settings").all() as { key: string; value: string }[]).map(r => [r.key, r.value]));
@@ -92,7 +102,9 @@ export function createApp(options: AppOptions = {}) {
   };
   const sectionItems = (section: Section) => {
     const cfg = SECTION_TYPES[section.type];
-    return cfg ? db.prepare(`SELECT * FROM ${cfg.table} WHERE section_id=? ORDER BY ${cfg.orderBy}`).all(section.id) : [];
+    const rows = cfg ? db.prepare(`SELECT * FROM ${cfg.table} WHERE section_id=? ORDER BY ${cfg.orderBy}`).all(section.id) as Record<string, unknown>[] : [];
+    // What each video link opens on the TV: a video, a playlist, a channel or a channel's live stream.
+    return section.type === "media" ? rows.map(row => ({ ...row, kind: linkKind(String(row.youtube_url ?? ""), row.is_playlist === 1) })) : rows;
   };
   let volume = Number(settings.volume ?? "0.05");
   if (!Number.isFinite(volume) || volume < 0 || volume > 1) volume = 0.05;
@@ -140,7 +152,7 @@ export function createApp(options: AppOptions = {}) {
   function tokenValid(token: string | undefined) { return !!token && (tokens.get(token) ?? 0) > Date.now(); }
   function normalizeSource(body: Record<string, unknown>, single = false) {
     const source = normalizeYouTube(body.youtube_url, !single && (body.is_playlist === 1 || body.is_playlist === true));
-    if (single && source.playlistId) throw new Error("Background audio requires a YouTube video URL.");
+    if (single && (source.playlistId || source.channel)) throw new Error("Background audio requires a YouTube video URL.");
     body.youtube_url = source.url;
     if (!single) body.is_playlist = source.playlistId ? 1 : 0;
     if (body.title === undefined || body.title === null) body.title = "";
@@ -150,7 +162,10 @@ export function createApp(options: AppOptions = {}) {
     try {
       // A video streams when played; looking it up now fills in a missing title
       // and makes it start at once.
-      if (kind === "video" && !normalizeYouTube(url).playlistId) {
+      const source = normalizeYouTube(url);
+      // A channel is read when someone opens it; reading it now also names it.
+      if (kind === "video" && source.channel) { if (backgroundWork) channels.get(source.channel); }
+      else if (kind === "video" && !source.playlistId) {
         const title = streams.knownTitle(url);
         if (title) fillTitle(url, title); else if (backgroundWork) streams.warm(url);
       } else media.queueSource(url, kind);
@@ -236,7 +251,15 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Querystring: { url?: string; fresh?: string } }>("/api/stream", async (req, reply) => {
     if (!loopback(req.ip)) return reply.code(403).send({ error: "Only the local player can open streams" });
     try { return await streams.resolve(req.query.url, req.query.fresh === "1"); }
-    catch (error) { return reply.code(error instanceof StreamError ? error.status : 502).send({ error: (error as Error).message }); }
+    catch (error) { return reply.code(error instanceof StreamError ? error.status : 502).send({ error: (error as Error).message, code: error instanceof StreamError ? error.code : undefined }); }
+  });
+  // A channel's live streams, latest videos and playlists; answers at once with what
+  // is known (status "loading" the first time) and reads the channel again when old.
+  app.get<{ Querystring: { url?: string; refresh?: string } }>("/api/channel", async (req, reply) => {
+    let source;
+    try { source = normalizeYouTube(req.query.url); } catch (error) { return reply.code(400).send({ error: (error as Error).message }); }
+    if (!source.channel) return reply.code(400).send({ error: "The URL must identify a YouTube channel" });
+    return channels.get(source.channel, req.query.refresh === "1");
   });
   app.post<{ Body: { url?: string } }>("/api/stream/warm", async (req, reply) => {
     if (!loopback(req.ip)) return reply.code(403).send({ error: "Only the local player can open streams" });
@@ -687,10 +710,10 @@ app.register(async (admin) => {
     media.queueExisting();
     if (backgroundWork) {
       media.start();
-      for (const { youtube_url } of db.prepare("SELECT youtube_url FROM media_items WHERE is_playlist=0 AND (title='' OR title=youtube_url)").all() as { youtube_url: string }[]) streams.warm(youtube_url);
+      for (const { youtube_url } of db.prepare("SELECT youtube_url FROM media_items WHERE is_playlist=0 AND (title='' OR title=youtube_url)").all() as { youtube_url: string }[]) queueSaved(youtube_url, "video");
     }
   });
   app.addHook("preClose", async () => { deviceEvents.close(); remoteEvents.close(); backgroundEvents.close(); });
-  app.addHook("onClose", async () => { clearInterval(tvPoll); streams.close(); await media.close(); db.close(); });
-  return { app, db, media, streams };
+  app.addHook("onClose", async () => { clearInterval(tvPoll); streams.close(); channels.close(); await media.close(); db.close(); });
+  return { app, db, media, streams, channels };
 }

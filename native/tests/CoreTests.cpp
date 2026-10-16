@@ -52,7 +52,7 @@ private slots:
         QCOMPARE(controller.selected(), 2);
         controller.action("select");
         QCOMPARE(controller.sectionType(), "media");
-        QCOMPARE(controller.entries().size(), 2);
+        QCOMPARE(controller.entries().size(), 3); // General, Music, YouTube channels
         controller.openIndex(0);
         QCOMPARE(controller.page(), "category");
         QCOMPARE(controller.entries().size(), 2);
@@ -318,6 +318,65 @@ private slots:
         controller.back();
         QTest::qWait(2000);
         QCOMPARE(load.count(), 0);
+    }
+    void channelsShowTheirLiveStreamVideosAndPlaylists() {
+        // The fixture says where the live stream plays from, as the server would.
+        QFile source(TEST_FIXTURE);
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        auto library = QJsonDocument::fromJson(source.readAll()).object();
+        library.insert("_streams", QJsonObject{{"https://www.youtube.com/watch?v=livelivelve",
+            QJsonObject{{"video", "https://manifest.example/hls_variant/index.m3u8"}, {"live", true}, {"hlsBitrate", 5421722}, {"userAgent", "Agent"},
+                {"headers", QJsonObject{{"Referer", "https://www.youtube.com/"}}}}}});
+        QTemporaryFile fixture;
+        QVERIFY(fixture.open());
+        fixture.write(QJsonDocument(library).toJson());
+        fixture.close();
+        Controller controller;
+        controller.start(fixture.fileName());
+        controller.openIndex(2); controller.openIndex(2);
+        QCOMPARE(controller.page(), "category");
+        QCOMPARE(controller.entries().at(0).toMap().value("detail").toString(), "YouTube channel");
+        QCOMPARE(controller.entries().at(1).toMap().value("detail").toString(), "Live stream");
+        controller.openIndex(0);
+        QCOMPARE(controller.page(), "channel");
+        QCOMPARE(controller.heading(), "Temple channel");
+        // Live first, then the latest videos, then the playlists.
+        QStringList titles, details;
+        for (const auto &entry : controller.entries()) { titles << entry.toMap().value("title").toString(); details << entry.toMap().value("detail").toString(); }
+        QCOMPARE(titles, (QStringList{"Morning arati, live", "Sunday talk", "Kirtan", "Evening reflections"}));
+        QCOMPARE(details, (QStringList{"● Live now", "1:02:05", "10:10", "Playlist"}));
+        QVERIFY(controller.entries().at(0).toMap().value("live").toBool());
+        // A playlist opens as a playlist, and Back returns to the channel.
+        controller.openIndex(3);
+        QCOMPARE(controller.page(), "playlist");
+        QCOMPARE(controller.entries().size(), 2);
+        controller.back();
+        QCOMPARE(controller.page(), "channel");
+        // The live stream plays where the broadcast is now, from the master playlist.
+        QSignalSpy load(&controller, &Controller::loadMedia);
+        controller.openIndex(0);
+        QCOMPARE(controller.page(), "player");
+        QCOMPARE(load.count(), 1);
+        const auto opened = load.takeFirst().at(0).toMap();
+        QCOMPARE(opened.value("url").toString(), "https://manifest.example/hls_variant/index.m3u8");
+        QVERIFY(!opened.contains("audio"));
+        QCOMPARE(opened.value("start").toDouble(), 0.);
+        QCOMPARE(opened.value("hlsBitrate").toDouble(), 5421722.);
+        QCOMPARE(opened.value("headers").toStringList(), QStringList{"Referer: https://www.youtube.com/"});
+        QVERIFY(controller.live());
+        controller.mediaState(true, true, false, 3600, 3630, {});
+        QCOMPARE(controller.mediaStatus(), "ready");
+        // Reconnecting rejoins the broadcast where it is, not where it was.
+        controller.mediaState(true, false, false, 3600, 3630, "The video stream stopped.");
+        QTRY_COMPARE_WITH_TIMEOUT(load.count(), 1, 3000);
+        QCOMPARE(load.takeFirst().at(0).toMap().value("start").toDouble(), 0.);
+        // A broadcast that ends says so.
+        controller.mediaEnded(true);
+        QCOMPARE(controller.mediaStatus(), "offair");
+        QCOMPARE(controller.mediaError(), "The live stream has ended.");
+        controller.back(); controller.back();
+        QCOMPARE(controller.page(), "category");
+        QVERIFY(!controller.live());
     }
     void cecFollowsTheTvAndAnswersIt() {
         Cec cec;

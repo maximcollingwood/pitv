@@ -183,7 +183,7 @@ export class MediaManager {
       if (!row.youtube_url) continue;
       try {
         const source = normalizeYouTube(row.youtube_url, row.is_playlist === 1);
-        if (row.kind === "audio" && source.playlistId) continue;
+        if (row.kind === "audio" && (source.playlistId || source.channel)) continue;
         const playlist = source.playlistId ? 1 : 0;
         if (row.kind === "video" && (source.url !== row.youtube_url || playlist !== row.is_playlist)) this.db.prepare("UPDATE media_items SET youtube_url=?,is_playlist=? WHERE id=?").run(source.url, playlist, row.id);
         else if (row.kind === "audio" && source.url !== row.youtube_url) this.db.prepare("UPDATE background_tracks SET youtube_url=? WHERE id=?").run(source.url, row.id);
@@ -202,7 +202,7 @@ export class MediaManager {
       try {
         const source = normalizeYouTube(row.youtube_url, row.is_playlist === 1);
         if (source.playlistId) playlists.add(source.playlistId);
-        else keys.add(`${row.kind}-${source.videoId}`);
+        else if (source.videoId) keys.add(`${row.kind}-${source.videoId}`);
       } catch { /* an invalid link references nothing */ }
     }
     const assets = this.db.prepare("SELECT key FROM media_assets WHERE status IN ('queued','error')").all() as { key: string }[];

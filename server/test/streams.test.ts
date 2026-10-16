@@ -61,7 +61,7 @@ test("a video is looked up once, shared between requests, and looked up again wh
   const streams = new StreamResolver({ runner, onResolved: (_url, title) => titles.push(title) });
   const [first, second] = await Promise.all([streams.resolve(`https://youtu.be/${VIDEO}`), streams.resolve(URL)]);
   assert.equal(calls(), 1);
-  assert.deepEqual(first, { id: VIDEO, title: "A talk", duration: 61.5, live: false, video: `/api/stream/${VIDEO}/video`, audio: `/api/stream/${VIDEO}/audio`, userAgent: null, headers: {} });
+  assert.deepEqual(first, { id: VIDEO, title: "A talk", duration: 61.5, live: false, video: `/api/stream/${VIDEO}/video`, audio: `/api/stream/${VIDEO}/audio`, userAgent: null, headers: {}, hlsBitrate: null });
   assert.deepEqual(second, first);
   assert.equal(streams.knownTitle(URL), "A talk");
   await streams.resolve(URL); assert.equal(calls(), 1);
@@ -77,7 +77,33 @@ test("YouTube's refusal reaches the screen as a readable message, and a live vid
   const bot = new StreamResolver({ runner: async () => { throw new Error(`ERROR: [youtube] ${VIDEO}: Sign in to confirm you’re not a bot`); } });
   await assert.rejects(bot.resolve(URL), /prove it is not a bot/);
   const live = new StreamResolver({ runner: async () => JSON.stringify({ id: VIDEO, title: "Live", is_live: true, url: "https://manifest.example/live.m3u8", protocol: "m3u8_native", vcodec: "avc1", acodec: "mp4a", http_headers: { "User-Agent": "Agent", Referer: "https://www.youtube.com/" } }) });
-  assert.deepEqual(await live.resolve(URL), { id: VIDEO, title: "Live", duration: null, live: true, video: "https://manifest.example/live.m3u8", audio: null, userAgent: "Agent", headers: { Referer: "https://www.youtube.com/" } });
+  assert.deepEqual(await live.resolve(URL), { id: VIDEO, title: "Live", duration: null, live: true, video: "https://manifest.example/live.m3u8", audio: null, userAgent: "Agent", headers: { Referer: "https://www.youtube.com/" }, hlsBitrate: null });
+});
+
+test("a channel's live address plays its current stream from YouTube's master playlist, and says when it is off air", async () => {
+  let live = true, calls = 0;
+  const runner: ProcessRunner = async (_command, args) => {
+    calls++;
+    assert.equal(args.at(-1), "https://www.youtube.com/@LofiGirl/live");
+    if (!live) throw new Error("ERROR: [youtube:tab] @LofiGirl: The channel is not currently live");
+    return JSON.stringify({ id: "jfKfPfyJRdk", title: "lofi hip hop radio", is_live: true, requested_formats: [
+      { url: "https://manifest.example/hls_playlist/itag/270/index.m3u8", manifest_url: "https://manifest.example/hls_variant/index.m3u8",
+        vcodec: "avc1.640028", acodec: "none", protocol: "m3u8_native", tbr: 5420.722, http_headers: { "User-Agent": "Agent" } },
+      { url: "https://manifest.example/hls_playlist/itag/234/index.m3u8", vcodec: "none", acodec: "mp4a.40.2", protocol: "m3u8_native" }] });
+  };
+  const titles: string[] = [];
+  const streams = new StreamResolver({ runner, onResolved: (_url, title) => titles.push(title) });
+  const stream = await streams.resolve("https://www.youtube.com/@LofiGirl/live");
+  assert.deepEqual(stream, { id: "jfKfPfyJRdk", title: "lofi hip hop radio", duration: null, live: true, video: "https://manifest.example/hls_variant/index.m3u8",
+    audio: null, userAgent: "Agent", headers: {}, hlsBitrate: 5421722 });
+  await streams.resolve("https://youtube.com/@LofiGirl/live");
+  streams.warm("https://www.youtube.com/@LofiGirl/live");
+  assert.equal(calls, 1, "the live address names its stream for a minute");
+  assert.deepEqual(titles, [], "a broadcast's title does not rename the channel's tile");
+  live = false;
+  await assert.rejects(streams.resolve("https://www.youtube.com/@LofiGirl/live", true),
+    (error: StreamError) => error.status === 404 && error.code === "offair" && error.message === "Nothing is streaming on this channel at the moment.");
+  await assert.rejects(streams.resolve("https://www.youtube.com/@LofiGirl"), (error: StreamError) => error.status === 400);
 });
 
 test("browsing warms lookups in the background, newest first, without repeating them", async () => {

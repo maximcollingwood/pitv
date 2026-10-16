@@ -88,7 +88,7 @@ test("native API, paste-only imports, admin compatibility, validated sources, an
     assert.equal(media.get(`video-${VIDEO}`), undefined, "a video streams when played; nothing is downloaded");
     const stream = await app.inject(`/api/stream?url=${encodeURIComponent(created.json().youtube_url)}`);
     assert.equal(stream.statusCode, 200);
-    assert.deepEqual(stream.json(), { id: VIDEO, title: "Streamed title", duration: 12, live: false, video: `/api/stream/${VIDEO}/video`, audio: `/api/stream/${VIDEO}/audio`, userAgent: null, headers: {} });
+    assert.deepEqual(stream.json(), { id: VIDEO, title: "Streamed title", duration: 12, live: false, video: `/api/stream/${VIDEO}/video`, audio: `/api/stream/${VIDEO}/audio`, userAgent: null, headers: {}, hlsBitrate: null });
     assert.equal((await app.inject({ url: `/api/stream?url=${encodeURIComponent(URL)}`, remoteAddress: "192.168.1.23" })).statusCode, 403, "only the local player opens streams");
     assert.equal((await app.inject({ url: `/api/stream/${VIDEO}/video`, remoteAddress: "192.168.1.23" })).statusCode, 403);
     assert.equal((await app.inject("/api/stream?url=https://example.com/video")).statusCode, 400);
@@ -264,6 +264,21 @@ test("YouTube normalization rejects forged hosts and shell-shaped URLs", () => {
   assert.throws(() => normalizeYouTube(`https://user@youtube.com/watch?v=${VIDEO}`), /Only YouTube/);
   assert.throws(() => normalizeYouTube("--exec calc.exe"), /URL/);
   assert.throws(() => normalizeYouTube("https://youtube.com/watch?v=$(whoami)"), /Invalid/);
+});
+
+test("channel links, on any tab, become the channel; its live tab tunes in to its live stream", () => {
+  const CHANNEL = "UC7wHMnwgzY11p6-6sp4njrQ";
+  assert.deepEqual(normalizeYouTube("https://www.youtube.com/@bhakticharuswami"), { url: "https://www.youtube.com/@bhakticharuswami", channel: "@bhakticharuswami" });
+  assert.deepEqual(normalizeYouTube("https://m.youtube.com/@bhakticharuswami/videos?view=0"), { url: "https://www.youtube.com/@bhakticharuswami", channel: "@bhakticharuswami" });
+  assert.deepEqual(normalizeYouTube("https://youtube.com/@bhakticharuswami/live"), { url: "https://www.youtube.com/@bhakticharuswami/live", channel: "@bhakticharuswami", live: true });
+  assert.equal(normalizeYouTube(`https://www.youtube.com/channel/${CHANNEL}/playlists`).url, `https://www.youtube.com/channel/${CHANNEL}`);
+  assert.equal(normalizeYouTube("https://www.youtube.com/c/MayapurTV").channel, "c/MayapurTV");
+  assert.equal(normalizeYouTube("https://www.youtube.com/user/bhaktivedantamanor/live").live, true);
+  assert.equal(normalizeYouTube("https://www.youtube.com/@%E0%A6%87%E0%A6%B8%E0%A6%95%E0%A6%A8").channel, "@ইসকন", "handles may use any script");
+  assert.equal(normalizeYouTube(`https://www.youtube.com/live/${VIDEO}`).videoId, VIDEO, "a live video's own link is still a video");
+  assert.throws(() => normalizeYouTube("https://www.youtube.com/@a"), /video, playlist or channel/);
+  assert.throws(() => normalizeYouTube("https://www.youtube.com/channel/not-a-channel"), /video, playlist or channel/);
+  assert.throws(() => normalizeYouTube("https://www.youtube.com/@name;rm -rf"), /video, playlist or channel/);
 });
 
 test("passive library refresh allows cache eviction while active playback leases protect files", async () => {

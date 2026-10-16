@@ -27,9 +27,11 @@ mpv_handle *MediaEngine::createPlayer(bool video) {
     const auto device = qgetenv("PITV_AUDIO_DEVICE");
     if (!device.isEmpty()) option(mpv, "audio-device", "pulse/" + device);
     option(mpv, "volume-max", "100");
-    // A connection that stops answering is given up, so playback can reconnect.
+    // A connection that stops answering is given up, so playback can reconnect; one
+    // that ends early is picked up where it stopped. (Not for streams without a
+    // length: a live stream's playlists would wait between every update.)
     option(mpv, "network-timeout", "15");
-    option(mpv, "stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=4");
+    option(mpv, "stream-lavf-o", "reconnect=1,reconnect_delay_max=4");
     if (video) {
         option(mpv, "vo", "libmpv");
         // Software H.264 decoding. The Pi 4's hardware decoder (bcm2835-codec) stops
@@ -119,7 +121,11 @@ void MediaEngine::open(Channel &channel) {
         const auto track = [](const QByteArray &part) { return "!new_stream;!no_clip;!no_chapters;%" + QByteArray::number(part.size()) + "%" + part; };
         url = "edl://" + track(url) + ";" + track(audio);
     }
-    mpv_set_property_string(channel.mpv, "start", QByteArray::number(channel.position, 'f', 3).constData());
+    // "none": the beginning, or where a live broadcast is now.
+    mpv_set_property_string(channel.mpv, "start", channel.position > 0 ? QByteArray::number(channel.position, 'f', 3).constData() : "none");
+    // A live stream's master playlist: the best quality up to the bitrate chosen for it.
+    const auto bitrate = qint64(channel.source.value("hlsBitrate").toDouble());
+    mpv_set_property_string(channel.mpv, "hls-bitrate", bitrate > 0 ? QByteArray::number(bitrate).constData() : "max");
     const auto agent = channel.source.value("userAgent").toString();
     mpv_set_property_string(channel.mpv, "user-agent", (agent.isEmpty() ? QStringLiteral("PiTV") : agent).toUtf8().constData());
     std::vector<QByteArray> fields;

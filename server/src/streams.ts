@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { byteRange } from "./http-files.js";
-import { normalizeYouTube } from "./youtube.js";
+import { channelUrl, normalizeYouTube } from "./youtube.js";
 import { runProcess, type ProcessRunner } from "./process-runner.js";
 
 /** What the TV's player opens for a YouTube video. */
@@ -14,6 +14,11 @@ export interface StreamInfo {
   /** Only for a stream the player opens directly at YouTube (live videos); relayed streams need none. */
   userAgent: string | null;
   headers: Record<string, string>;
+  /**
+   * A live stream is YouTube's master HLS playlist, with every quality; the player
+   * picks the best one up to this many bits per second (the H.264 one chosen here).
+   */
+  hlsBitrate: number | null;
 }
 export type Fetcher = (url: string, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<Response>;
 export interface StreamOptions {
@@ -26,23 +31,27 @@ export interface StreamOptions {
   warn?: (message: string) => void;
 }
 export class StreamError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  /** code "offair": a channel's live address while it is not streaming. */
+  constructor(public status: number, message: string, public code?: string) { super(message); }
 }
 interface Track { url: string; size: number | null; type: string; relayed: boolean }
 interface Resolved {
   id: string; title: string; duration: number | null; live: boolean;
   picture: Track; sound: Track | null; userAgent: string | null; headers: Record<string, string>; expiresAt: number; resolvedAt: number;
+  hlsBitrate: number | null;
 }
 interface Piece { controller: AbortController; release: () => void; response: Response }
-interface Format { url?: string; vcodec?: string; acodec?: string; ext?: string; protocol?: string; http_headers?: Record<string, string> }
+interface Format { url?: string; vcodec?: string; acodec?: string; ext?: string; protocol?: string; http_headers?: Record<string, string>; manifest_url?: string; tbr?: number }
 interface Info extends Format { id?: string; title?: string; duration?: number; is_live?: boolean; requested_formats?: Format[] }
 
 // H.264 up to 1080p at 30 frames per second with AAC sound: the Pi decodes it in
-// software with room to spare. Then the same at any frame rate, then anything at
-// 720p or below, so an unusual video still plays.
+// software with room to spare. Then the same at any frame rate; then the same over
+// HLS, which is how live streams come; then anything at 720p or below, so an
+// unusual video still plays.
 const FORMAT = [
   "bv*[vcodec^=avc1][height<=1080][fps<=30][protocol=https]+ba[ext=m4a][protocol=https]",
   "bv*[vcodec^=avc1][height<=1080][protocol=https]+ba[ext=m4a][protocol=https]",
+  "bv*[vcodec^=avc1][height<=1080][fps<=30]+ba", "bv*[vcodec^=avc1][height<=1080]+ba",
   "b[vcodec^=avc1][height<=1080]",
   "bv*[height<=720]+ba", "b[height<=720]", "b",
 ].join("/");
@@ -60,6 +69,8 @@ const STALL_MS = 20000;
 // for some clients' addresses (web_embedded), usually less. Until it is this old,
 // a refused address is asked again instead of being looked up anew.
 const ACTIVATION_MS = 8000;
+// A channel's live address names its current stream for this long.
+const LIVE_ALIAS_MS = 60 * 1000;
 const WARM_QUEUE_LIMIT = 20;
 const CACHE_LIMIT = 200;
 const ID = /^[A-Za-z0-9_-]{11}$/;
@@ -102,6 +113,7 @@ export class StreamResolver {
   private readonly warn: (message: string) => void;
   private cache = new Map<string, Resolved>();
   private inflight = new Map<string, Promise<Resolved>>();
+  private liveAliases = new Map<string, { id: string; at: number }>();
   private warmQueue: string[] = [];
   private warming = false;
   private closed = false;
@@ -120,29 +132,54 @@ export class StreamResolver {
   private videoId(url: unknown) {
     let source;
     try { source = normalizeYouTube(url); } catch (error) { throw new StreamError(400, (error as Error).message); }
-    if (!source.videoId || source.playlistId) throw new StreamError(400, "Choose a video within the playlist to play it");
+    if (!source.videoId || source.playlistId) throw new StreamError(400, source.channel ? "Open the channel to choose one of its videos" : "Choose a video within the playlist to play it");
     return source.videoId;
   }
   private usable(entry: Resolved | undefined, margin: number): entry is Resolved {
     return !!entry && entry.expiresAt - Date.now() > margin;
   }
-  /** What the player opens for a YouTube video. `fresh` looks it up again, after playback failed. */
+  /**
+   * What the player opens for a YouTube video, or for a channel's live address
+   * (whatever it is streaming now). `fresh` looks it up again, after playback failed.
+   */
   async resolve(url: unknown, fresh = false): Promise<StreamInfo> {
-    const id = this.videoId(url);
-    const entry = await this.lookup(id, fresh ? Infinity : REUSE_MARGIN_MS);
+    let source;
+    try { source = normalizeYouTube(url); } catch (error) { throw new StreamError(400, (error as Error).message); }
+    const entry = source.live && source.channel ? await this.lookupLive(source.channel, fresh) : await this.lookup(this.videoId(url), fresh ? Infinity : REUSE_MARGIN_MS);
+    const id = entry.id;
     const relay = (track: Track | null, name: string) => !track ? null : track.relayed ? `/api/stream/${id}/${name}` : track.url;
     const direct = !entry.picture.relayed || (entry.sound && !entry.sound.relayed);
     return { id, title: entry.title, duration: entry.duration, live: entry.live, video: relay(entry.picture, "video")!, audio: relay(entry.sound, "audio"),
-      userAgent: direct ? entry.userAgent : null, headers: direct ? entry.headers : {} };
+      userAgent: direct ? entry.userAgent : null, headers: direct ? entry.headers : {}, hlsBitrate: entry.hlsBitrate };
+  }
+  private lookupLive(channel: string, fresh: boolean): Promise<Resolved> {
+    const alias = this.liveAliases.get(channel);
+    const cached = alias && this.cache.get(alias.id);
+    if (!fresh && alias && Date.now() - alias.at < LIVE_ALIAS_MS && this.usable(cached, 60000)) return Promise.resolve(cached);
+    if (this.closed) return Promise.reject(new StreamError(503, "The library service is shutting down."));
+    const key = `live:${channel}`;
+    const running = this.inflight.get(key);
+    if (running) return running;
+    const promise = this.extract(channelUrl(channel, true), null).then(entry => {
+      if (!entry.live) throw new StreamError(404, "Nothing is streaming on this channel at the moment.", "offair");
+      this.liveAliases.set(channel, { id: entry.id, at: Date.now() });
+      return entry;
+    }).finally(() => this.inflight.delete(key));
+    this.inflight.set(key, promise);
+    return promise;
   }
   /** A video's title from an earlier lookup, without asking YouTube. */
   knownTitle(url: unknown) {
     try { return this.cache.get(this.videoId(url))?.title || null; } catch { return null; }
   }
-  /** Look the video up in the background so it starts at once when chosen. Never throws. */
+  /** Look the video (or what a channel streams live) up in the background so it starts at once when chosen. Never throws. */
   warm(url: unknown) {
     let id: string;
-    try { id = this.videoId(url); } catch { return; }
+    try {
+      const source = normalizeYouTube(url);
+      if (source.live && source.channel) { void this.lookupLive(source.channel, false).catch(() => { /* the player says it is off air */ }); return; }
+      id = this.videoId(url);
+    } catch { return; }
     if (this.usable(this.cache.get(id), REUSE_MARGIN_MS) || this.inflight.has(id) || this.warmQueue.includes(id)) return;
     // The latest request is the likeliest to be played next.
     this.warmQueue.unshift(id);
@@ -164,24 +201,30 @@ export class StreamResolver {
     if (this.closed) return Promise.reject(new StreamError(503, "The library service is shutting down."));
     const running = this.inflight.get(id);
     if (running) return running;
-    const promise = this.extract(id).finally(() => this.inflight.delete(id));
+    const promise = this.extract(`https://www.youtube.com/watch?v=${id}`, id).finally(() => this.inflight.delete(id));
     this.inflight.set(id, promise);
     return promise;
   }
-  private async extract(id: string): Promise<Resolved> {
+  /** Look a video up at `url`; `known` is its ID, or null for a channel's live address. */
+  private async extract(url: string, known: string | null): Promise<Resolved> {
     const controller = new AbortController();
     this.controllers.add(controller);
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    const url = `https://www.youtube.com/watch?v=${id}`;
     let output: string;
     try {
       output = await this.runner(this.ytdlp, ["--ignore-config", "--no-warnings", "--no-playlist", "--socket-timeout", "15",
         "--js-runtimes", `node:${process.execPath}`, "--format", FORMAT, "--dump-single-json", "--", url], { signal: controller.signal });
     } catch (error) {
-      throw new StreamError(502, controller.signal.aborted && !this.closed ? "YouTube took too long to answer. Try again." : extractorMessage(error));
+      if (controller.signal.aborted && !this.closed) throw new StreamError(502, "YouTube took too long to answer. Try again.");
+      const message = extractorMessage(error);
+      if (known === null && /not currently live|is not live/i.test(message)) throw new StreamError(404, "Nothing is streaming on this channel at the moment.", "offair");
+      if (/live event will begin|premieres? in|scheduled/i.test(message)) throw new StreamError(404, message, "offair");
+      throw new StreamError(502, message);
     } finally { clearTimeout(timeout); this.controllers.delete(controller); }
     let info: Info;
     try { info = JSON.parse(output) as Info; } catch { throw new StreamError(502, "YouTube returned an unreadable answer."); }
+    const id = known ?? (info.id && ID.test(info.id) ? info.id : null);
+    if (!id) throw new StreamError(502, "YouTube returned an unreadable answer.");
     const formats = info.requested_formats ?? [];
     const picture = formats.find(format => format.vcodec && format.vcodec !== "none") ?? (formats.length ? undefined : info);
     const sound = formats.find(format => format.acodec && format.acodec !== "none" && (!format.vcodec || format.vcodec === "none"));
@@ -191,8 +234,15 @@ export class StreamResolver {
       return { url: format.url, size: Number.isSafeInteger(size) && size > 0 ? size : null,
         type: TYPES[format.ext ?? ""] ?? "application/octet-stream", relayed: format.protocol === "https" };
     };
-    const pictureTrack = track(picture), soundTrack = sound ? track(sound) : null;
+    let pictureTrack = track(picture), soundTrack = sound ? track(sound) : null, hlsBitrate: number | null = null;
     if (!pictureTrack || (sound && !soundTrack)) throw new StreamError(502, "YouTube offered no stream this player can use.");
+    // A live stream plays from YouTube's master playlist, which carries picture and
+    // sound together; the player reads its separate HLS parts out of step.
+    if (info.is_live === true && picture?.manifest_url && /^https:\/\//.test(picture.manifest_url)) {
+      pictureTrack = { url: picture.manifest_url, size: null, type: "application/vnd.apple.mpegurl", relayed: false };
+      soundTrack = null;
+      hlsBitrate = Number(picture.tbr) > 0 ? Math.ceil(Number(picture.tbr) * 1000) + 1000 : null;
+    }
     const requestHeaders = picture?.http_headers ?? info.http_headers ?? {};
     const headers: Record<string, string> = {};
     for (const name of FORWARDED_HEADERS) if (requestHeaders[name]) headers[name] = requestHeaders[name];
@@ -200,12 +250,13 @@ export class StreamResolver {
     const entry: Resolved = {
       id, title: info.title ?? "", duration: Number(info.duration) > 0 ? Number(info.duration) : null, live: info.is_live === true,
       picture: pictureTrack, sound: soundTrack, userAgent: requestHeaders["User-Agent"] ?? null, headers,
-      expiresAt: Number.isFinite(expire) && expire > 0 ? expire * 1000 : Date.now() + DEFAULT_LIFETIME_MS, resolvedAt: Date.now(),
+      expiresAt: Number.isFinite(expire) && expire > 0 ? expire * 1000 : Date.now() + DEFAULT_LIFETIME_MS, resolvedAt: Date.now(), hlsBitrate,
     };
     this.cache.delete(id);
     this.cache.set(id, entry);
     for (const [key, cached] of this.cache) if (this.cache.size > CACHE_LIMIT || cached.expiresAt <= Date.now()) this.cache.delete(key);
-    try { if (entry.title) this.onResolved(url, entry.title); } catch { /* a title update must not fail playback */ }
+    // A live stream's title changes with each broadcast; a channel's tile keeps its own.
+    try { if (entry.title && known) this.onResolved(url, entry.title); } catch { /* a title update must not fail playback */ }
     return entry;
   }
   /**

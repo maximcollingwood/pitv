@@ -26,9 +26,11 @@ Controller::Controller(QObject *parent) : QObject(parent) {
             auto status = playlists_.value(view_.playlist).toObject().value("status").toString();
             if (status != "ready" && status != "error") fetchPlaylist();
         }
+        if (view_.page == "channel" && channels_.value(view_.channel).toObject().value("status").toString("loading") == "loading") fetchChannel();
     });
     refresh_.setInterval(60000);
-    connect(&refresh_, &QTimer::timeout, this, &Controller::fetchLibrary);
+    // A channel on the screen is asked again too, so a stream that starts shows up.
+    connect(&refresh_, &QTimer::timeout, this, [this] { fetchLibrary(); if (view_.page == "channel") fetchChannel(); });
     watchdog_.setInterval(45000); watchdog_.setSingleShot(true);
     connect(&watchdog_, &QTimer::timeout, this, [this] { if (stream_) stream_->abort(); });
     // A forgotten colour check does not stay on the screen.
@@ -118,6 +120,7 @@ void Controller::start(const QString &fixture) {
     if (file.open(QIODevice::ReadOnly)) {
         auto object = QJsonDocument::fromJson(file.readAll()).object();
         cachedAssets_ = object.take("_assets").toObject(); playlists_ = object.take("_playlists").toObject();
+        channels_ = object.take("_channels").toObject();
         fixtureStreams_ = fixture_ ? object.take("_streams").toObject() : QJsonObject{};
         applyLibrary(object);
     } else rebuild();
@@ -169,7 +172,7 @@ void Controller::applyLibrary(const QJsonObject &object) {
 }
 void Controller::saveCache() {
     if (fixture_) return;
-    auto object = library_; object.insert("_assets", cachedAssets_); object.insert("_playlists", playlists_);
+    auto object = library_; object.insert("_assets", cachedAssets_); object.insert("_playlists", playlists_); object.insert("_channels", channels_);
     const auto bytes = QJsonDocument(object).toJson(QJsonDocument::Compact);
     if (bytes == cacheSaved_) return; // the periodic refresh usually changes nothing
     cacheSaved_ = bytes;
@@ -260,6 +263,28 @@ void Controller::rebuild() {
         auto status = list.value("status").toString();
         notice_ = status == "error" ? list.value("error").toString("Playlist unavailable. Press Select to retry.")
                   : (status != "ready" ? "Preparing playlist…" : QString());
+    } else if (view_.page == "channel") {
+        // Live first, then the latest videos, then the channel's playlists.
+        const auto channel = channels_.value(view_.channel).toObject();
+        for (const auto &value : channel.value("live").toArray()) {
+            const auto video = value.toObject();
+            entries_ << QVariantMap{{"title", video.value("title").toString()}, {"youtube_url", "https://www.youtube.com/watch?v=" + video.value("id").toString()},
+                {"detail", QStringLiteral("● Live now")}, {"live", true}};
+        }
+        for (const auto &value : channel.value("videos").toArray()) {
+            const auto video = value.toObject();
+            QVariantMap row{{"title", video.value("title").toString()}, {"youtube_url", "https://www.youtube.com/watch?v=" + video.value("id").toString()}};
+            if (video.value("duration").toDouble() > 0) row.insert("detail", clockText(video.value("duration").toDouble()));
+            entries_ << row;
+        }
+        for (const auto &value : channel.value("playlists").toArray()) {
+            const auto list = value.toObject();
+            entries_ << QVariantMap{{"title", list.value("title").toString()}, {"youtube_url", "https://www.youtube.com/playlist?list=" + list.value("id").toString()},
+                {"detail", QStringLiteral("Playlist")}};
+        }
+        const auto status = channel.value("status").toString("loading");
+        notice_ = status == "error" ? channel.value("error").toString("The channel is unavailable.") + " Press Select to retry."
+                  : (status != "ready" && entries_.isEmpty() ? QStringLiteral("Opening the channel…") : QString());
     } else if (view_.page == "section" && view_.type == "media") {
         QStringList categories;
         for (const auto &value : all) {
@@ -277,7 +302,14 @@ void Controller::rebuild() {
         for (const auto &value : all) {
             auto row = value.toObject();
             auto category = row.value("category").toString(); if (category.isEmpty()) category = "General";
-            if (view_.page != "category" || category == view_.category) entries_ << row.toVariantMap();
+            if (view_.page != "category" || category == view_.category) {
+                auto entry = row.toVariantMap();
+                const auto kind = row.value("kind").toString();
+                if (kind == "channel") entry.insert("detail", QStringLiteral("YouTube channel"));
+                else if (kind == "live") entry.insert("detail", QStringLiteral("Live stream"));
+                else if (kind == "playlist") entry.insert("detail", QStringLiteral("Playlist"));
+                entries_ << entry;
+            }
         }
     }
     view_.selected = std::clamp(view_.selected, 0, std::max(0, int(entries_.size()) - 1));
@@ -295,9 +327,12 @@ void Controller::selectIndex(int index) {
     if (previous != view_.selected) warmSelection();
 }
 void Controller::warmSelection() {
-    if (fixture_ || (view_.page != "category" && view_.page != "playlist") || view_.selected >= entries_.size()) return;
-    const auto url = entries_.at(view_.selected).toMap().value("youtube_url").toString();
-    if (url.isEmpty() || !QUrlQuery(QUrl(url)).queryItemValue("list").isEmpty()) return;
+    if (fixture_ || (view_.page != "category" && view_.page != "playlist" && view_.page != "channel") || view_.selected >= entries_.size()) return;
+    const auto entry = entries_.at(view_.selected).toMap();
+    const auto url = entry.value("youtube_url").toString();
+    // Videos and a channel's live stream; a playlist or a channel is read when opened.
+    const auto kind = entry.value("kind").toString();
+    if (url.isEmpty() || !QUrlQuery(QUrl(url)).queryItemValue("list").isEmpty() || (!kind.isEmpty() && kind != "video" && kind != "live")) return;
     warmUrl_ = url; warm_.start();
 }
 void Controller::openIndex(int index) {
@@ -318,10 +353,12 @@ void Controller::openIndex(int index) {
 }
 void Controller::openItem(const QVariantMap &item) {
     View next = view_; next.item = item; next.heading = item.value("title").toString();
-    if (view_.type == "media" || view_.page == "playlist") {
+    if (view_.type == "media" || view_.page == "playlist" || view_.page == "channel") {
         const auto url = item.value("youtube_url").toString();
         const auto list = QUrlQuery(QUrl(url)).queryItemValue("list");
         if (!list.isEmpty()) { next.page = "playlist"; next.playlist = list; next.selected = 0; navigate(next); fetchPlaylist(); }
+        else if (item.value("kind") == "channel") { next.page = "channel"; next.channel = url; next.selected = 0; navigate(next); fetchChannel(); }
+        // A video, or a channel's live address: the server finds what it streams.
         else { next.page = "player"; navigate(next); playVideo(url); }
     } else {
         next.page = view_.type == "lyrics" ? "lyrics" : view_.type == "catalog" ? "book" : "reader";
@@ -392,7 +429,7 @@ void Controller::action(const QString &key, int columns) {
     }
     const int columnCount = std::max(1, columns), count = int(entries_.size());
     if (key == "select") {
-        if (entries_.isEmpty() && view_.page == "playlist") retry(); else openIndex(view_.selected);
+        if (entries_.isEmpty() && (view_.page == "playlist" || view_.page == "channel")) retry(); else openIndex(view_.selected);
     } else if (view_.type == "faq" && (key == "left" || key == "right")) {
         emit scrollRequested(key == "left" ? -1 : 1);
     } else if (key == "up" && view_.selected < columnCount) {
@@ -437,6 +474,18 @@ void Controller::fetchPlaylist(bool retry) {
             }
         });
 }
+void Controller::fetchChannel(bool refresh) {
+    if (fixture_ || view_.page != "channel" || channelPending_) return;
+    channelPending_ = true; const auto url = view_.channel;
+    request("/api/channel?url=" + QString::fromLatin1(QUrl::toPercentEncoding(url)) + (refresh ? "&refresh=1" : ""), nullptr,
+        [this, url](const QJsonObject &object, const QString &error) {
+            channelPending_ = false;
+            if (error.isEmpty()) { channels_.insert(url, decomposed(object)); saveCache(); }
+            if (view_.page == "channel" && view_.channel == url) {
+                rebuild(); if (!error.isEmpty()) { notice_ = error + " Press Select to retry."; emit viewChanged(); }
+            }
+        });
+}
 void Controller::playVideo(const QString &url) {
     const int generation = video_.generation;
     video_ = Stream{}; video_.generation = generation; video_.source = url;
@@ -459,6 +508,8 @@ void Controller::openStream(bool fresh) {
     request("/api/stream?url=" + QString::fromLatin1(QUrl::toPercentEncoding(video_.source)) + (fresh ? "&fresh=1" : ""), nullptr,
         [this, generation](const QJsonObject &object, const QString &error) {
             if (generation != video_.generation) return;
+            // A channel's live address while nothing is streaming.
+            if (!error.isEmpty() && object.value("code") == "offair") { video_.status = "offair"; video_.error = error; video_.note.clear(); emit stopMedia(true); emit playbackChanged(); publishStatus(); return; }
             // Reconnecting, a failed lookup is one more failed attempt; for a new
             // video it is the answer (YouTube says the video is unavailable).
             if (!error.isEmpty() && video_.status == "ready") { streamFailed(error); return; }
@@ -467,8 +518,10 @@ void Controller::openStream(bool fresh) {
         }, 60000);
 }
 void Controller::startStream(const QJsonObject &stream) {
-    QVariantMap source{{"url", absoluteUrl(stream.value("video").toString())}, {"start", video_.resumeAt},
-        {"userAgent", stream.value("userAgent").toString()}};
+    video_.live = stream.value("live").toBool();
+    // A live stream starts where the broadcast is now, also after reconnecting.
+    QVariantMap source{{"url", absoluteUrl(stream.value("video").toString())}, {"start", video_.live ? 0. : video_.resumeAt},
+        {"userAgent", stream.value("userAgent").toString()}, {"hlsBitrate", stream.value("hlsBitrate").toDouble()}};
     const auto audio = stream.value("audio").toString();
     if (!audio.isEmpty()) source.insert("audio", absoluteUrl(audio));
     QStringList headers;
@@ -610,6 +663,7 @@ void Controller::stepVolume(int direction) {
 }
 void Controller::retry() {
     if (view_.page == "playlist") { fetchPlaylist(true); return; }
+    if (view_.page == "channel") { channels_.remove(view_.channel); rebuild(); fetchChannel(true); return; }
     if (view_.page == "player" && !video_.source.isEmpty()) {
         video_.failures = 0; video_.resumeAt = position_; video_.note.clear();
         emit stopMedia(true); openStream(true);
@@ -634,6 +688,12 @@ void Controller::mediaState(bool video, bool playing, bool buffering, double pos
     emit playbackChanged();
 }
 void Controller::mediaEnded(bool video) {
+    // A live broadcast that ends leaves nothing to play.
+    if (video && view_.page == "player" && video_.live) {
+        video_.status = "offair"; video_.error = QStringLiteral("The live stream has ended."); stall_.stop(); frozen_.stop();
+        emit playbackChanged(); publishStatus();
+        return;
+    }
     if (!video && backgroundAudible() && !background_.loaded.isEmpty()) emit loadMedia(QVariantMap{{"url", background_.loaded}}, false);
 }
 void Controller::showColourCheck(bool show) {
