@@ -10,10 +10,11 @@ import { normalizeYouTube } from "./youtube.js";
 import { EventStream } from "./events.js";
 import { sendFile } from "./http-files.js";
 import { SYSTEM_ACTIONS, SystemControl, type SystemAction, type SystemOptions } from "./system.js";
+import { TvControl, TvError, type TvOptions, type TvVolume } from "./tv.js";
 
 export interface AppOptions {
   dbPath?: string; uploadsDir?: string; adminPin?: string; seed?: boolean;
-  logger?: boolean; startWorker?: boolean; media?: Partial<MediaOptions>; system?: Partial<SystemOptions>;
+  logger?: boolean; startWorker?: boolean; media?: Partial<MediaOptions>; system?: Partial<SystemOptions>; tv?: Partial<TvOptions>;
 }
 const SECTION_TYPES: Record<string, { table: string; columns: string[]; orderBy: string }> = {
   articles: { table: "articles", columns: ["title", "body", "position"], orderBy: "position, title" },
@@ -44,6 +45,7 @@ export function createApp(options: AppOptions = {}) {
     rangePath: process.env.HDMI_RANGE_PATH ?? "/etc/kiosk/hdmi-range",
     ...options.system,
   });
+  const tv = new TvControl({ file: process.env.TV_PAIRING_PATH ?? resolve(dirname(dbPath), "tv.json"), ...options.tv });
   const media = new MediaManager(db, {
     cacheDir: process.env.MEDIA_CACHE_DIR ?? resolve(dirname(dbPath), "media"), ...options.media,
     onEvent: event => { deviceEvents.publish(event); options.media?.onEvent?.(event); },
@@ -81,6 +83,39 @@ export function createApp(options: AppOptions = {}) {
   // tv: the TV's power as the screen follows it over HDMI-CEC; null without CEC.
   let deviceStatus = { page: "home", title: "", playing: false, position: 0, duration: 0, error: "", tv: null as "on" | "standby" | null, updatedAt: 0 };
   const status = () => ({ ...deviceStatus, connected: deviceStatus.updatedAt > 0 && Date.now() - deviceStatus.updatedAt < 15000 });
+  // The TV's own volume (a paired Vizio SmartCast TV), followed so the phones and
+  // the screen show changes made with the TV's remote too.
+  let tvState = { available: false, level: 0, muted: false };
+  function publishTv(next: typeof tvState) {
+    if (next.available === tvState.available && next.level === tvState.level && next.muted === tvState.muted) return;
+    tvState = next; deviceEvents.publish({ type: "tvVolume", ...tvState });
+  }
+  async function readTv() {
+    try { publishTv({ available: true, ...await tv.volume() }); }
+    catch { publishTv({ ...tvState, available: false }); }
+    return tvState;
+  }
+  async function changeTv(change: () => Promise<TvVolume>) {
+    try { publishTv({ available: true, ...await change() }); return { paired: true, ...tvState }; }
+    catch (error) {
+      if (!(error instanceof TvError) || error.status !== 400) publishTv({ ...tvState, available: false });
+      throw error;
+    }
+  }
+  const tvStatus = () => ({ ...tv.status(), available: tvState.available });
+  const tvFailure = (error: unknown) => error instanceof TvError ? { status: error.status, error: error.message } : { status: 504, error: "The TV is not answering on the network." };
+  // Asked every 5 seconds while the TV is on (the screen follows its power over
+  // CEC), every 30 seconds while that is unknown, never while it is in standby.
+  // A TV that dropped off the Wi-Fi takes seconds to fail, so checks never overlap.
+  let tvTicks = 0, tvChecking = false;
+  const tvPoll = setInterval(() => {
+    const power = status().connected ? status().tv : null;
+    if (!tv.paired || power === "standby") { publishTv({ ...tvState, available: false }); return; }
+    if (tvChecking || (power !== "on" && ++tvTicks % 6 !== 0)) return;
+    tvChecking = true;
+    void readTv().finally(() => { tvChecking = false; });
+  }, 5000);
+  tvPoll.unref();
   const tokens = new Map<string, number>();
   function issueToken() {
     for (const [token, expiry] of tokens) if (expiry <= Date.now()) tokens.delete(token);
@@ -104,7 +139,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/api/config", async () => config());
   app.get("/api/library", async () => {
     const current = config();
-    return { config: current, items: Object.fromEntries(current.sections.map(section => [String(section.id), sectionItems(section)])), background: background(), info: info(), volume };
+    return { config: current, items: Object.fromEntries(current.sections.map(section => [String(section.id), sectionItems(section)])), background: background(), info: info(), volume, tv: tvState };
   });
   app.get<{ Params: { id: string } }>("/api/sections/:id/items", async (req, reply) => {
     const section = getSection(req.params.id);
@@ -147,6 +182,16 @@ export function createApp(options: AppOptions = {}) {
     const action = req.body?.action;
     if (!action || !["up", "down", "left", "right", "select", "back", "home", "power"].includes(action)) return reply.code(400).send({ error: "bad action" });
     remoteEvents.publish({ action }); deviceEvents.publish({ type: "remote", action }); return { ok: true, clients: remoteEvents.size + deviceEvents.size };
+  });
+  app.get("/api/tv", async () => tv.paired ? { paired: true, ...await readTv() } : { paired: false, ...tvState });
+  app.post<{ Body: { level?: unknown; step?: unknown; muted?: unknown } }>("/api/tv/volume", async (req, reply) => {
+    const { level, step, muted } = req.body ?? {};
+    try {
+      if (typeof level === "number" && Number.isFinite(level) && level >= 0 && level <= 100) return await changeTv(() => tv.setVolume(level));
+      if (typeof step === "number" && Number.isInteger(step) && step !== 0 && Math.abs(step) <= 10) return await changeTv(() => tv.step(step));
+      if (typeof muted === "boolean") return await changeTv(() => tv.setMuted(muted));
+      return reply.code(400).send({ error: "Send a level from 0 to 100, a step of up to 10, or muted." });
+    } catch (error) { const failure = tvFailure(error); return reply.code(failure.status).send({ error: failure.error }); }
   });
   app.get("/api/system/volume", async () => ({ level: volume }));
   app.post<{ Body: { level?: number } }>("/api/system/volume", async (req, reply) => {
@@ -195,8 +240,18 @@ app.register(async (admin) => {
   // System page: status, updates and restarts.
   admin.get("/api/admin/system", async () => {
     const [update, device] = await Promise.all([system.updateState(), system.device()]);
-    return { screen: status(), version: system.version(), update, device, colourRange: system.colourRange() };
+    return { screen: status(), version: system.version(), update, device, colourRange: system.colourRange(), tv: tvStatus() };
   });
+  // Pairing with the TV: without a PIN the TV is found and shows one; with it, pairing completes.
+  admin.post<{ Body: { pin?: unknown } }>("/api/admin/system/tv/pair", async (req, reply) => {
+    try {
+      if (typeof req.body?.pin !== "string") { await tv.startPairing(); return tvStatus(); }
+      await tv.finishPairing(req.body.pin.trim());
+      await readTv();
+      return tvStatus();
+    } catch (error) { const failure = tvFailure(error); return reply.code(failure.status).send({ error: failure.error }); }
+  });
+  admin.delete("/api/admin/system/tv", async () => { tv.forget(); publishTv({ ...tvState, available: false }); return tvStatus(); });
   // A test card on the TV for judging its colours; any remote button closes it.
   admin.post<{ Body: { show?: unknown } }>("/api/admin/system/colour-check", async (req, reply) => {
     if (!status().connected) return reply.code(409).send({ error: "The screen is not connected." });
@@ -581,6 +636,6 @@ app.register(async (admin) => {
 
   app.addHook("onReady", async () => { media.queueExisting(); if (options.startWorker !== false && process.env.MEDIA_WORKER_DISABLED !== "1") media.start(); });
   app.addHook("preClose", async () => { deviceEvents.close(); remoteEvents.close(); backgroundEvents.close(); });
-  app.addHook("onClose", async () => { await media.close(); db.close(); });
+  app.addHook("onClose", async () => { clearInterval(tvPoll); await media.close(); db.close(); });
   return { app, db, media };
 }

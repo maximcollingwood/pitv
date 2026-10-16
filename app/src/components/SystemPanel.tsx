@@ -38,6 +38,8 @@ export function SystemPanel({ onError }: { onError: (error: unknown) => void }) 
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [pin, setPin] = useState("");
+  const [tvBusy, setTvBusy] = useState(false);
   const wentDown = useRef(false);
   // The run an update request replaces, so the previous run's result is not mistaken for it.
   const previousRun = useRef<{ startedAt: number | null; requestedAt: number }>({ startedAt: null, requestedAt: 0 });
@@ -136,8 +138,25 @@ export function SystemPanel({ onError }: { onError: (error: unknown) => void }) 
     } catch (failure) { fail(failure); }
   }
 
+  // Pairing: the TV is found and shows a PIN, which is typed back here.
+  async function pairTv(code?: string) {
+    setError(null); setNotice(null); setTvBusy(true);
+    if (code === undefined) setPin(""); // a new PIN replaces anything typed for the last one
+    try {
+      const tv = await api.pairTv(code);
+      setStatus((current) => current && { ...current, tv });
+      if (code !== undefined) { setPin(""); setNotice("Paired with the TV. The phone remote's volume is now the TV's own volume."); }
+    } catch (failure) { fail(failure); }
+    finally { setTvBusy(false); }
+  }
+  async function unpairTv() {
+    setError(null); setNotice(null);
+    try { const tv = await api.unpairTv(); setStatus((current) => current && { ...current, tv }); }
+    catch (failure) { fail(failure); }
+  }
+
   if (!status) return error ? <p className="notice notice--error" role="alert">{error}<button className="text-link" onClick={() => void load()}>Try again</button></p> : <p role="status">Checking the Pi…</p>;
-  const { screen, version, update, device } = status;
+  const { screen, version, update, device, tv } = status;
   const upToDate = latest?.commit && version.commit ? latest.commit === version.commit : null;
   const offline = phase === "restarting" || phase === "off";
   const power = device.power;
@@ -175,6 +194,29 @@ export function SystemPanel({ onError }: { onError: (error: unknown) => void }) 
           </label>)}
         </fieldset>}
         <p className="small muted">Changing the range restarts the screen. If no range looks right, the TV's own settings are next: choose the picture mode Calibrated or Standard and the colour temperature Normal or Warm.</p>
+      </section>
+
+      <section className="panel system-card" aria-labelledby="system-tv">
+        <div className="section-heading"><h2 id="system-tv">TV</h2>
+          {tv.paired && <span className="status-line"><span className={`status-dot ${tv.available ? "is-online" : ""}`} />{tv.available ? "Connected" : "Not answering"}</span>}
+        </div>
+        <p className="muted">{tv.paired
+          ? `Paired with the ${tv.model} “${tv.name}” at ${tv.host}. The phone remote's volume is the TV's own volume, the same one its remote changes.`
+          : "Pair PiTV with the TV so the phone remote controls the TV's own volume, the same one its remote changes. The TV needs to be on and on the same Wi-Fi as PiTV."}</p>
+        {tv.paired && !tv.available && <p className="small muted">The TV answers only while it is on. If it is on, check that it is still connected to the Wi-Fi.</p>}
+        {tv.pairing
+          ? <form className="tv-pin" onSubmit={(event) => { event.preventDefault(); void pairTv(pin); }}>
+              <label className="field-label" htmlFor="tv-pin">PIN shown on the TV</label>
+              <input id="tv-pin" inputMode="numeric" autoComplete="one-time-code" value={pin} autoFocus onChange={(event) => setPin(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))} />
+              <div className="form-actions">
+                <button className="btn btn--primary" disabled={tvBusy || pin.length !== 4}>{tvBusy ? "Pairing…" : "Pair"}</button>
+                <button type="button" className="btn" disabled={tvBusy} onClick={() => void pairTv()}>Show a new PIN</button>
+              </div>
+            </form>
+          : <div className="form-actions">
+              <button className="btn" disabled={tvBusy || offline} onClick={() => void pairTv()}>{tvBusy ? "Looking for the TV…" : tv.paired ? "Pair again" : "Pair with the TV"}</button>
+              {tv.paired && <Confirm label="Unpair" confirm="Unpair now" message="The phone remote goes back to PiTV's own volume, and the TV keeps its own." onConfirm={() => void unpairTv()} />}
+            </div>}
       </section>
 
       <section className="panel system-card" aria-labelledby="system-software">

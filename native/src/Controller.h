@@ -39,6 +39,8 @@ class Controller final : public QObject {
     Q_PROPERTY(QString backgroundStatus READ backgroundStatus NOTIFY backgroundChanged)
     Q_PROPERTY(bool backgroundPlaying READ backgroundPlaying NOTIFY backgroundChanged)
     Q_PROPERTY(double volume READ volume NOTIFY playbackChanged)
+    // The volume the player shows: the TV's own when the server reaches it, else PiTV's.
+    Q_PROPERTY(QString volumeText READ volumeText NOTIFY playbackChanged)
     // A test card for judging the TV's colours, opened from the admin page.
     Q_PROPERTY(bool colourCheck READ colourCheck NOTIFY colourCheckChanged)
 public:
@@ -67,6 +69,7 @@ public:
     QString backgroundStatus() const { return background_.error.isEmpty() ? background_.asset.value("status").toString() : background_.error; }
     bool backgroundPlaying() const { return backgroundPlaying_; }
     double volume() const { return volume_; }
+    QString volumeText() const;
     bool colourCheck() const { return colourCheck_; }
     bool tvAsleep() const { return tvAsleep_; }
     // HDMI-CEC reaches the TV, so the screen follows its power and can turn it on.
@@ -152,6 +155,10 @@ private:
     QStringList chromeControls(const QString &zone) const;
     void enterChrome(const QString &zone);
     double position_ = 0, duration_ = 0, volume_ = .05;
+    // The TV's own volume (a paired Vizio TV, through the server); level -1 while unknown.
+    int tvLevel_ = -1;
+    bool tvMuted_ = false;
+    void stepVolume(int direction);
     using Response = std::function<void(const QJsonObject &, const QString &)>;
     void request(const QString &path, const QJsonObject *body, Response done);
     void fetchLibrary();

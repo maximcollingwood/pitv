@@ -145,6 +145,10 @@ void Controller::fetchLibrary() {
 void Controller::applyLibrary(const QJsonObject &object) {
     library_ = decomposed(object).toObject();
     volume_ = std::clamp(object.value("volume").toDouble(.05), 0., 1.);
+    // The TV's own volume as the server last read it; events keep it current.
+    const auto tv = object.value("tv").toObject();
+    tvLevel_ = tv.value("available").toBool() ? tv.value("level").toInt() : -1;
+    tvMuted_ = tv.value("muted").toBool();
     emit changeVolume(volume_); emit libraryChanged(); emit playbackChanged();
     rebuild(); syncBackground();
 }
@@ -193,6 +197,10 @@ void Controller::event(const QJsonObject &object) {
     } else if (type == "background") {
         library_.insert("background", decomposed(QJsonObject{{"tracks", object.value("tracks")}, {"state", object.value("state")}}));
         syncBackground(); if (page() == "background") rebuild(); saveCache();
+    } else if (type == "tvVolume") {
+        tvLevel_ = object.value("available").toBool() ? object.value("level").toInt() : -1;
+        tvMuted_ = object.value("muted").toBool();
+        emit playbackChanged();
     } else if (type == "colourCheck") {
         showColourCheck(object.value("show").toBool(true));
     } else if (type == "media") {
@@ -334,7 +342,7 @@ void Controller::action(const QString &key, int columns) {
         emit playerActivity();
         if (key == "select") { if (!foreground_.error.isEmpty()) retry(); else emit toggleVideo(); }
         else if (key == "left" || key == "right") emit seekVideo(key == "left" ? -10 : 10);
-        else if (key == "up" || key == "down") setVolume(volume_ + (key == "up" ? .05 : -.05));
+        else if (key == "up" || key == "down") stepVolume(key == "up" ? 1 : -1);
         return;
     }
     if (zone_ != "content") {
@@ -505,6 +513,21 @@ void Controller::setVolume(double level) {
     if (fixture_) return;
     const QJsonObject body{{"level", volume_}};
     request("/api/system/volume", &body, [](const QJsonObject &, const QString &) {});
+}
+QString Controller::volumeText() const {
+    if (tvLevel_ < 0) return QString("Volume %1%").arg(qRound(volume_ * 100));
+    return tvMuted_ ? QStringLiteral("Muted") : QString("Volume %1").arg(tvLevel_);
+}
+void Controller::stepVolume(int direction) {
+    if (tvLevel_ < 0 || fixture_) { setVolume(volume_ + direction * .05); return; }
+    // The TV's own volume keys, so the TV shows its volume bar. Shown at once,
+    // corrected by the TV's answer; if the TV does not answer, PiTV's level moves.
+    tvLevel_ = std::clamp(tvLevel_ + direction * 2, 0, 100); emit playbackChanged();
+    const QJsonObject body{{"step", direction * 2}};
+    request("/api/tv/volume", &body, [this, direction](const QJsonObject &object, const QString &error) {
+        if (error.isEmpty()) { tvLevel_ = object.value("level").toInt(tvLevel_); tvMuted_ = object.value("muted").toBool(); emit playbackChanged(); }
+        else { tvLevel_ = -1; setVolume(volume_ + direction * .05); }
+    });
 }
 void Controller::retry() {
     if (view_.page == "playlist") { fetchPlaylist(true); return; }

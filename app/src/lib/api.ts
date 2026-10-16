@@ -35,12 +35,17 @@ export interface MediaPlaylist {
   error: string | null;
   videoCount: number;
 }
+// The TV's own volume, through a paired Vizio SmartCast TV; unavailable while the
+// TV is off, unpaired or unreachable.
+export interface TvVolume { paired: boolean; available: boolean; level: number; muted: boolean }
+export interface TvPairing { paired: boolean; available: boolean; model: string; name: string; host: string; pairing: { model: string; name: string; host: string } | null }
 export type ColourRange = "automatic" | "full" | "limited";
 export type SystemAction = "update" | "restart-screen" | "reset-audio" | `range-${ColourRange}` | "reboot" | "poweroff";
 export interface SystemStatus {
   screen: DeviceStatus;
   /** Null where the screen's colour range is not managed (development). */
   colourRange: ColourRange | null;
+  tv: TvPairing;
   version: { commit: string | null; date: string | null; subject: string | null; branch: string | null; selfUpdate: boolean };
   update: { running: boolean; startedAt: number | null; finishedAt: number | null; succeeded: boolean | null } | null;
   device: {
@@ -106,6 +111,8 @@ export const api = {
   getVolume: () => request<{ level: number }>("/api/system/volume"),
   setVolume: (level: number) => request<{ level: number }>("/api/system/volume", json("POST", { level })),
   press: (action: RemoteAction) => request<{ ok: boolean }>("/api/remote/press", json("POST", { action })),
+  tv: () => request<TvVolume>("/api/tv"),
+  setTv: (change: { level: number } | { step: number } | { muted: boolean }) => request<TvVolume>("/api/tv/volume", json("POST", change)),
   login: (pin: string) => request<{ token: string }>("/api/admin/login", json("POST", { pin })),
   getSettings: () => request<Record<string, string>>("/api/admin/settings", {}, true),
   saveSettings: (data: Record<string, string>) => request<Record<string, string>>("/api/admin/settings", json("PUT", data), true),
@@ -128,5 +135,8 @@ export const api = {
   updateLog: () => request<{ lines: string[] }>("/api/admin/system/update-log", {}, true),
   systemAction: (action: SystemAction) => request<{ ok: boolean }>(`/api/admin/system/${action}`, json("POST"), true),
   colourCheck: (show: boolean) => request<{ ok: boolean }>("/api/admin/system/colour-check", json("POST", { show }), true),
+  // Without a PIN the TV is found and shows one; with the PIN, pairing completes.
+  pairTv: (pin?: string) => request<TvPairing>("/api/admin/system/tv/pair", json("POST", pin === undefined ? {} : { pin }), true),
+  unpairTv: () => request<TvPairing>("/api/admin/system/tv", json("DELETE"), true),
   retryPlaylist: (id: string) => request<unknown>(`/api/playlist?list=${encodeURIComponent(id)}&retry=1`),
 };

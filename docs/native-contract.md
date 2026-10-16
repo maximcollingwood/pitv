@@ -27,6 +27,10 @@ use ordinary `data:` frames containing one of:
   `power` turns the TV off, or on and over to PiTV, over HDMI-CEC.
 - `{ "type": "background", "tracks": [], "state": {"trackId":null,"playing":false} }`
 - `{ "type": "volume", "level": 0.05 }`
+- `{ "type": "tvVolume", "available": true, "level": 27, "muted": false }`: the TV's own
+  volume (a paired Vizio SmartCast TV), published when it changes. The library
+  snapshot carries the same object as `tv`. While `available`, the player's up and
+  down send `POST /api/tv/volume` with `{ "step": 2 }` or `{ "step": -2 }`.
 - `{ "type": "media", "asset": { ... } }`
 
 The initial connection sends a library invalidation. Remote actions are ephemeral;

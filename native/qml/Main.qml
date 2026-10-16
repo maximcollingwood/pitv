@@ -452,7 +452,7 @@ Window {
                 }
                 Row { anchors.right: parent.right; anchors.rightMargin: 64; y: 102; spacing: 30
                     Hint { glyph: ""; text: "Seek"; tint: "#D9FFFBF1" }
-                    Hint { glyph: ""; text: "Volume " + Math.round(kiosk.volume * 100) + "%"; tint: "#D9FFFBF1" }
+                    Hint { glyph: ""; text: kiosk.volumeText; tint: "#D9FFFBF1" }
                     Hint { glyph: ""; text: "OK  Play / pause"; tint: "#D9FFFBF1" }
                 }
             }

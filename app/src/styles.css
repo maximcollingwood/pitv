@@ -681,6 +681,17 @@ html.remote-mode,html.remote-mode body {
   font-variant-numeric:tabular-nums;
 }
 
+.volume-actions {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-top:12px;
+}
+
+.volume-actions .small {
+  margin:0;
+}
+
 .background-picker {
   margin-top:24px;
   padding-top:20px;
@@ -1313,6 +1324,17 @@ progress::-moz-progress-bar {
 
 .system-power {
   align-items:flex-start;
+}
+
+.tv-pin {
+  margin-top:18px;
+}
+
+.tv-pin input {
+  max-width:9rem;
+  font-size:1.4rem;
+  letter-spacing:.3em;
+  font-variant-numeric:tabular-nums;
 }
 
 .range-choice {

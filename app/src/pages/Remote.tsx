@@ -4,7 +4,7 @@ import lotus from "../assets/lotus-purple.png";
 import { Icon } from "../components/Icon";
 import { SoundSheet } from "../components/SoundSheet";
 import { TouchPad } from "../components/TouchPad";
-import { api, errorMessage, type BgState, type BgTrack, type DeviceStatus, type RemoteAction } from "../lib/api";
+import { api, errorMessage, type BgState, type BgTrack, type DeviceStatus, type RemoteAction, type TvVolume } from "../lib/api";
 import { useDeviceStatus } from "../lib/useDeviceStatus";
 
 // What a swipe or tap does on the page the screen is showing.
@@ -25,6 +25,11 @@ export function Remote() {
   const [tracks, setTracks] = useState<BgTrack[]>([]);
   const [background, setBackground] = useState<BgState>({ trackId: null, playing: false });
   const [volume, setVolume] = useState<number | null>(null);
+  // The TV's own volume when PiTV is paired with the TV; PiTV's level otherwise.
+  const [tv, setTv] = useState<TvVolume | null>(null);
+  const tvTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tvWriting = useRef(false);
+  const pendingTv = useRef<number | null>(null);
   const [live, setLive] = useState(false);
   const [backgroundBusy, setBackgroundBusy] = useState(false);
   const [soundOpen, setSoundOpen] = useState(false);
@@ -61,6 +66,8 @@ export function Remote() {
           if (!volumeWriting.current && pendingVolume.current === null && revision === volumeRevision.current) setVolume(nextVolume.level);
         }
       } catch (failure) { if (active) setSyncError(errorMessage(failure)); }
+      // Asking the TV can take a few seconds when it is off, so it does not hold up the rest.
+      void api.tv().then((next) => { if (active && !tvWriting.current && pendingTv.current === null) setTv(next); }).catch(() => { /* shown as PiTV's volume */ });
     }
     stream.onopen = () => { setLive(true); void refresh(); };
     stream.onerror = () => setLive(false);
@@ -79,6 +86,7 @@ export function Remote() {
         }
         if (message.type === "status") push(message as DeviceStatus);
         if (message.type === "volume" && !volumeWriting.current && pendingVolume.current === null) { volumeRevision.current++; setVolume(message.level); }
+        if (message.type === "tvVolume" && !tvWriting.current && pendingTv.current === null) setTv({ paired: true, available: message.available, level: message.level, muted: message.muted });
       } catch { /* Ignore incomplete or unknown event frames. */ }
     };
     void refresh();
@@ -89,6 +97,9 @@ export function Remote() {
       if (volumeTimer.current) clearTimeout(volumeTimer.current);
       volumeTimer.current = null;
       pendingVolume.current = null;
+      if (tvTimer.current) clearTimeout(tvTimer.current);
+      tvTimer.current = null;
+      pendingTv.current = null;
     };
   }, [push]);
 
@@ -136,6 +147,36 @@ export function Remote() {
     volumeTimer.current = setTimeout(() => { volumeTimer.current = null; void flushVolume(); }, 150);
   }
 
+  async function flushTv() {
+    if (tvWriting.current || pendingTv.current === null || !mounted.current) return;
+    const level = pendingTv.current;
+    pendingTv.current = null;
+    tvWriting.current = true;
+    try {
+      const saved = await api.setTv({ level });
+      if (mounted.current && pendingTv.current === null) { setTv(saved); setError(null); }
+    } catch (failure) {
+      if (mounted.current) setError(errorMessage(failure));
+    } finally {
+      tvWriting.current = false;
+      // One write at a time, like PiTV's own volume.
+      if (mounted.current && pendingTv.current !== null) void flushTv();
+    }
+  }
+
+  function changeTvVolume(level: number) {
+    setTv((current) => current && { ...current, level });
+    pendingTv.current = level;
+    if (tvTimer.current) clearTimeout(tvTimer.current);
+    tvTimer.current = setTimeout(() => { tvTimer.current = null; void flushTv(); }, 150);
+  }
+
+  async function muteTv(muted: boolean) {
+    setTv((current) => current && { ...current, muted });
+    try { setTv(await api.setTv({ muted })); setError(null); }
+    catch (failure) { setError(errorMessage(failure)); }
+  }
+
   const { status, error: statusError } = connection;
   const disabled = !status?.connected;
   const hint = padHint(status, disabled);
@@ -161,7 +202,8 @@ export function Remote() {
       <button className="remote__key" aria-haspopup="dialog" onClick={() => setSoundOpen(true)}><Icon name="volume-high" />Sound</button>
       {status?.tv && <button className="remote__key" disabled={disabled} onClick={() => press("power")}><Icon name="power-off" />{status.tv === "standby" ? "Turn on" : "Turn off"}</button>}
     </nav>
-    {soundOpen && <SoundSheet volume={volume} tracks={tracks} background={background} busy={backgroundBusy} live={live}
-      onVolume={changeVolume} onBackground={(next) => void changeBackground(next)} onClose={() => setSoundOpen(false)} />}
+    {soundOpen && <SoundSheet volume={volume} tv={tv} tracks={tracks} background={background} busy={backgroundBusy} live={live}
+      onVolume={changeVolume} onTvVolume={changeTvVolume} onTvMute={(muted) => void muteTv(muted)}
+      onBackground={(next) => void changeBackground(next)} onClose={() => setSoundOpen(false)} />}
   </main>;
 }

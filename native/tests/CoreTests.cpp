@@ -159,6 +159,21 @@ private slots:
         QVERIFY(controller.heading() != title);
         QVERIFY(controller.wifiCode().contains(password));
     }
+    void playerShowsTheTvsOwnVolume() {
+        Controller fallback;
+        fallback.start(TEST_FIXTURE);
+        QCOMPARE(fallback.volumeText(), "Volume 15%"); // no TV volume: PiTV's own level
+        for (const bool muted : {false, true}) {
+            QTemporaryFile fixture;
+            QVERIFY(fixture.open());
+            fixture.write(QJsonDocument(QJsonObject{{"config", QJsonObject{{"sections", QJsonArray{}}}}, {"items", QJsonObject{}},
+                {"tv", QJsonObject{{"available", true}, {"level", 27}, {"muted", muted}}}}).toJson());
+            fixture.close();
+            Controller controller;
+            controller.start(fixture.fileName());
+            QCOMPARE(controller.volumeText(), muted ? "Muted" : "Volume 27");
+        }
+    }
     void readerLyricsAndFaqControls() {
         Controller controller;
         controller.start(TEST_FIXTURE);

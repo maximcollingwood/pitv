@@ -39,7 +39,25 @@ PiTV (`/dev/cec0`, HDMI0; `PITV_CEC_DEVICE` overrides it):
   come on.
 - Any button pressed while the TV is off turns it on and switches it to PiTV (One
   Touch Play). The phone remote shows whether the TV is on and has a power button.
-- Volume stays with the TV's remote; the Vizio refuses volume commands over CEC.
+- Volume is not sent over CEC: the Vizio speaks CEC 1.4, where TVs may refuse
+  volume commands from other devices, and it does. See the next section.
+
+### TV volume (Vizio SmartCast)
+
+The phone remote and the TV's own remote share one volume, the TV's. Vizio
+SmartCast TVs have a local HTTPS API that sets and reports the volume; PiTV uses
+it once paired (admin page, **System** tab, **TV** card: **Pair with the TV**, then
+type the PIN the TV shows). The TV must be on the same Wi-Fi as the Pi.
+
+- The phone remote's **Sound** sheet shows the TV's volume (0 to 100) with Mute,
+  and the player's up and down step it, so the TV shows its own volume bar.
+  Without a paired, reachable TV they control PiTV's own level as before.
+- The server reads the TV every 5 seconds while the TV is on (never in
+  standby), so changes made with the TV's remote reach the phones and the screen.
+- The pairing is kept in `/var/lib/pitv/tv.json` (`TV_PAIRING_PATH`), readable
+  only by the service. Before sending its key PiTV checks the TV's certificate
+  (pinned at pairing); if the TV moves to a new address it is found again on the
+  local network by its serial number.
 
 Without a CEC adapter (the development VM) none of this applies. In the VM,
 `sudo modprobe vivid n_devs=1 num_inputs=1 input_types=3 num_outputs=1 output_types=1`
